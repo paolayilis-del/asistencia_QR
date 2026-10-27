@@ -1,0 +1,499 @@
+{% extends "panel.html" %}
+{% block titulo %}Mi asistencia · Sistema de Asistencia Docente{% endblock %}
+
+{# Detalle de la asistencia del docente y acción de marcación.
+
+   El estado de hoy viene del servidor porque depende del horario, la geocerca
+   y la secuencia de entradas: decidirlo en el navegador dejaría el botón
+   activo cuando el sistema lo rechazaría. El listado sí se carga por la API,
+   para que filtrar no recargue el HTML entero. #}
+
+{% set ETIQUETA_ESTADO = {
+  'ON_TIME': 'Puntual',
+  'LATE': 'Tarde',
+  'EARLY_DEPARTURE': 'Salida anticipada'
+} %}
+
+{% macro clase_estado(estado) %}
+{%- if estado == 'ON_TIME' -%}
+border-success/20 bg-success/10 text-emerald-700
+{%- elif estado == 'LATE' -%}
+border-warning/20 bg-warning/10 text-amber-700
+{%- else -%}
+border-destructive/20 bg-destructive/10 text-red-700
+{%- endif -%}
+{% endmacro %}
+
+{% block contenido %}
+<div class="mx-auto max-w-[1400px] space-y-5 animate-fade-in">
+
+  {# ── Resumen del periodo filtrado ───────────────────────────── #}
+  {# Las cifras salen del servidor y respetan los mismos filtros que la tabla:
+     si el docente elige "solo tardanzas", el total también baja. #}
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="surface-card p-5">
+      <p class="text-sm font-medium text-muted-foreground">Marcaciones del periodo</p>
+      <p id="cifra-total" class="mt-2 text-3xl font-bold tracking-tight tabular-nums text-foreground">—</p>
+      <p id="cifra-total-pie" class="mt-1 text-xs text-muted-foreground">Cargando…</p>
+    </div>
+    <div class="surface-card p-5">
+      <p class="text-sm font-medium text-muted-foreground">Puntualidad</p>
+      <p id="cifra-puntualidad" class="mt-2 text-3xl font-bold tracking-tight tabular-nums text-foreground">—</p>
+      <p id="cifra-puntualidad-pie" class="mt-1 text-xs text-muted-foreground">Sobre las entradas</p>
+    </div>
+    <div class="surface-card p-5">
+      <p class="text-sm font-medium text-muted-foreground">Tardanzas</p>
+      <p id="cifra-tarde" class="mt-2 text-3xl font-bold tracking-tight tabular-nums text-amber-600">—</p>
+      <p id="cifra-tarde-pie" class="mt-1 text-xs text-muted-foreground">Entradas después de la hora del horario</p>
+    </div>
+    <div class="surface-card p-5">
+      <p class="text-sm font-medium text-muted-foreground">Días con asistencia</p>
+      <p id="cifra-dias" class="mt-2 text-3xl font-bold tracking-tight tabular-nums text-foreground">—</p>
+      <p id="cifra-dias-pie" class="mt-1 text-xs text-muted-foreground">Días distintos con al menos una marcación</p>
+    </div>
+  </div>
+
+  {# ── Filtros ─────────────────────────────────────────────────── #}
+  <div class="surface-card p-4">
+    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div>
+        <label for="filtro-tipo" class="mb-1 block text-xs font-medium text-muted-foreground">Tipo</label>
+        <select id="filtro-tipo"
+                class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground
+                       focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <option value="">Entrada y salida</option>
+          <option value="CHECK_IN">Solo entradas</option>
+          <option value="CHECK_OUT">Solo salidas</option>
+        </select>
+      </div>
+      <div>
+        <label for="filtro-estado" class="mb-1 block text-xs font-medium text-muted-foreground">Estado</label>
+        <select id="filtro-estado"
+                class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground
+                       focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <option value="">Todos</option>
+          <option value="ON_TIME">Puntual</option>
+          <option value="LATE">Tarde</option>
+          <option value="EARLY_DEPARTURE">Salida anticipada</option>
+        </select>
+      </div>
+      <div>
+        <label for="filtro-desde" class="mb-1 block text-xs font-medium text-muted-foreground">Desde</label>
+        <input type="date" id="filtro-desde"
+               class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground
+                      focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+      <div>
+        <label for="filtro-hasta" class="mb-1 block text-xs font-medium text-muted-foreground">Hasta</label>
+        <input type="date" id="filtro-hasta"
+               class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground
+                      focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+    </div>
+
+    <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+      <p class="text-xs text-muted-foreground">
+        <span id="cifra-filtradas">—</span> registro(s) coinciden con el filtro.
+      </p>
+      <button type="button" id="limpiar"
+              class="text-sm font-medium text-primary transition hover:underline">
+        Limpiar filtros
+      </button>
+    </div>
+  </div>
+
+  {# ── Detalle de hoy ─────────────────────────────────────────── #}
+  <div class="surface-card overflow-hidden">
+    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+      <div>
+        <h3 class="text-base font-semibold text-foreground">Hoy, {{ estado.date }}</h3>
+        <p class="text-xs text-muted-foreground">{{ estado.dayName }} · {{ estado.currentTime }}</p>
+      </div>
+      <a href="/escanear" class="text-sm font-medium text-primary transition hover:underline">
+        Escanear QR
+      </a>
+    </div>
+
+    <div class="p-5">
+      {% if estado.blockedReason %}
+        <p class="flex items-start gap-2 text-sm text-muted-foreground">
+          <svg viewBox="0 0 24 24" fill="none" class="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/>
+            <path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+          {{ estado.blockedReason }}
+        </p>
+      {% else %}
+        <div class="flex flex-wrap gap-3">
+          <a href="/escanear"
+             class="inline-flex h-11 items-center gap-2 rounded-lg px-5 text-sm font-semibold transition
+                    {% if estado.canCheckIn %}bg-primary text-primary-foreground shadow-glow hover:bg-primary-hover
+                    {% else %}pointer-events-none bg-muted text-muted-foreground{% endif %}">
+            Registrar entrada
+          </a>
+          <a href="/escanear"
+             class="inline-flex h-11 items-center gap-2 rounded-lg border border-border bg-card px-5
+                    text-sm font-semibold text-foreground transition
+                    {% if estado.canCheckOut %}hover:bg-muted
+                    {% else %}pointer-events-none opacity-50{% endif %}">
+            Registrar salida
+          </a>
+        </div>
+
+        {% if estado.schedules %}
+        <p class="mt-4 text-xs text-muted-foreground">
+          Horario de hoy:
+          {% for horario in estado.schedules %}
+            {{ horario.shift.name }} ({{ horario.checkInTime }}–{{ horario.checkOutTime }}){% if not loop.last %}, {% endif %}
+          {% endfor %}
+        </p>
+        {% endif %}
+      {% endif %}
+
+      {% if estado.todayRecords %}
+      <ul class="mt-4 flex flex-wrap gap-2">
+        {% for registro in estado.todayRecords %}
+        <li class="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-foreground">
+          {{ 'Entrada' if registro.type == 'CHECK_IN' else 'Salida' }}
+          <span class="tabular-nums text-muted-foreground" data-hora="{{ registro.registeredAt }}"></span>
+          <span class="rounded-full border px-2 py-0.5 {{ clase_estado(registro.status) }}">
+            {{ ETIQUETA_ESTADO[registro.status] }}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Tabla de detalle ───────────────────────────────────────── #}
+  <div class="surface-card overflow-hidden">
+    <div class="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+      <h3 class="text-base font-semibold text-foreground">Detalle de marcaciones</h3>
+      <span id="tabla-aviso" class="text-xs text-muted-foreground"></span>
+    </div>
+
+    <div class="table-scroll">
+      <table class="w-full min-w-[840px] text-sm">
+        <thead class="border-b border-border bg-muted/40">
+          <tr class="text-left">
+            <th class="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Fecha</th>
+            <th class="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Hora</th>
+            <th class="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tipo</th>
+            <th class="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Jornada</th>
+            <th class="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Esperada</th>
+            <th class="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Diferencia</th>
+            <th class="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Estado</th>
+            <th class="px-5 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Justificación</th>
+          </tr>
+        </thead>
+        <tbody id="filas" class="divide-y divide-border">
+          <tr>
+            <td colspan="8" class="px-5 py-10 text-center text-sm text-muted-foreground">
+              Cargando tu historial…
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="paginacion" class="flex items-center justify-between gap-3 border-t border-border px-5 py-3"></div>
+  </div>
+</div>
+
+{# ── Modal: Justificar marcación ───────────────────────────────── #}
+<div id="modal-justificar" class="fixed inset-0 z-50 hidden items-center justify-center p-4" role="dialog" aria-modal="true">
+  <div id="modal-justificar-velo" class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"></div>
+  <div class="surface-card relative z-10 w-full max-w-lg overflow-hidden shadow-elevated">
+    <div class="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+      <h3 class="text-base font-semibold text-foreground">Justificar marcación</h3>
+      <button type="button" id="cancelar-justificar" class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-muted" aria-label="Cerrar">
+        <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <form id="form-justificar" enctype="multipart/form-data" class="space-y-4 p-5">
+      <input type="hidden" name="attendanceId" id="just-attendance-id">
+      <div class="rounded-lg bg-muted/60 px-3 py-2.5 text-sm">
+        <p><span class="font-medium text-foreground">Fecha:</span> <span id="just-fecha" class="text-muted-foreground"></span></p>
+        <p class="mt-1"><span class="font-medium text-foreground">Incidencia:</span> <span id="just-tipo" class="text-muted-foreground"></span></p>
+      </div>
+      <div>
+        <label for="just-tipo-excusa" class="mb-1 block text-sm font-medium text-foreground">Motivo</label>
+        <select id="just-tipo-excusa" name="type" required
+                class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <option value="PERMISO">Permiso</option>
+          <option value="INCAPACIDAD">Incapacidad</option>
+          <option value="OTRO">Otro</option>
+        </select>
+      </div>
+      <div>
+        <label for="just-razon" class="mb-1 block text-sm font-medium text-foreground">Explicación</label>
+        <textarea id="just-razon" name="reason" minlength="10" maxlength="1000" required rows="3" placeholder="Explique brevemente el motivo..."
+                  class="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"></textarea>
+      </div>
+      <div>
+        <label for="just-archivo" class="mb-1 block text-sm font-medium text-foreground">Soporte (opcional)</label>
+        <input id="just-archivo" type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp"
+               class="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary/10 file:px-3 file:py-2 file:text-sm file:font-medium file:text-primary hover:file:bg-primary/20">
+        <p class="mt-1 text-xs text-muted-foreground">PDF, JPG, PNG o WEBP (máx. 5 MB)</p>
+      </div>
+      <div id="just-aviso" class="hidden rounded-lg px-3 py-2 text-sm"></div>
+      <div class="flex flex-wrap justify-end gap-2">
+        <button type="button" id="cancelar-justificar" class="h-10 rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition hover:bg-muted">Cancelar</button>
+        <button type="submit" id="just-enviar" class="h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-glow transition hover:bg-primary-hover">Enviar excusa</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block guiones_pagina %}
+<script>
+  // ── Utilidades ────────────────────────────────────────────────
+  const ETIQUETA_ESTADO = {
+    ON_TIME: 'Puntual',
+    LATE: 'Tarde',
+    EARLY_DEPARTURE: 'Salida anticipada',
+  };
+
+  const celdaVacia = '<td colspan="7" class="px-5 py-10 text-center text-sm text-muted-foreground">';
+  const FILAS = document.getElementById('filas');
+  const AVISO = document.getElementById('tabla-aviso');
+
+  const pintarHora = (iso) => new Date(iso).toLocaleTimeString('es-CO', {
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  /** Escapa el texto que viene de la base antes de meterlo en el HTML. */
+  const texto = (valor) => String(valor ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+
+  const claseEstado = (estado) => {
+    if (estado === 'ON_TIME') return 'border-success/20 bg-success/10 text-emerald-700';
+    if (estado === 'LATE') return 'border-warning/20 bg-warning/10 text-amber-700';
+    return 'border-destructive/20 bg-destructive/10 text-red-700';
+  };
+
+  // ── Filtros ───────────────────────────────────────────────────
+  const filtros = {
+    type: document.getElementById('filtro-tipo'),
+    status: document.getElementById('filtro-estado'),
+    dateFrom: document.getElementById('filtro-desde'),
+    dateTo: document.getElementById('filtro-hasta'),
+  };
+
+  let pagina = 1;
+
+  const consulta = () => {
+    const parametros = new URLSearchParams({ page: pagina, limit: 25 });
+    for (const [clave, campo] of Object.entries(filtros)) {
+      if (campo.value) parametros.set(clave, campo.value);
+    }
+    return parametros.toString();
+  };
+
+  async function cargar() {
+    try {
+      const datos = await Api.get(`/attendance/me/history?${consulta()}`);
+      pintar(datos);
+    } catch (error) {
+      FILAS.innerHTML = `${celdaVacia}No se pudo cargar tu historial. ${texto(error.mensaje)}</td></tr>`;
+      AVISO.textContent = '';
+    }
+  }
+
+  function pintar(datos) {
+    const resumen = datos.resumen || {};
+    const meta = datos.meta || {};
+    const filas = datos.items || [];
+
+    // Las cifras respetan el filtro activo: son las mismas filas de la tabla.
+    document.getElementById('cifra-total').textContent = resumen.total ?? 0;
+    document.getElementById('cifra-total-pie').textContent =
+      `${resumen.checkIns ?? 0} entrada(s) · ${resumen.checkOuts ?? 0} salida(s)`;
+
+    document.getElementById('cifra-puntualidad').textContent =
+      `${resumen.punctualityRate ?? 0}%`;
+    document.getElementById('cifra-puntualidad-pie').textContent =
+      `${resumen.onTime ?? 0} puntual(es) de ${(resumen.onTime ?? 0) + (resumen.late ?? 0)}`;
+
+    document.getElementById('cifra-tarde').textContent = resumen.late ?? 0;
+    document.getElementById('cifra-tarde-pie').textContent =
+      `${resumen.earlyDeparture ?? 0} salida(s) anticipada(s)`;
+
+    document.getElementById('cifra-dias').textContent = resumen.workedDays ?? 0;
+    document.getElementById('cifra-filtradas').textContent = meta.total ?? 0;
+
+    AVISO.textContent = filas.length
+      ? `Mostrando ${filas.length} de ${meta.total}`
+      : '';
+
+    if (!filas.length) {
+      FILAS.innerHTML = '<tr><td colspan="8" class="px-5 py-10 text-center text-sm text-muted-foreground">No hay marcaciones con estos filtros.</td></tr>';
+      document.getElementById('paginacion').innerHTML = '';
+      return;
+    }
+
+    FILAS.innerHTML = filas.map((r) => {
+      const diferencia = r.minutesDiff
+        ? `<span class="tabular-nums font-medium ${r.minutesDiff > 0 ? 'text-amber-700' : 'text-muted-foreground'}">
+             ${r.minutesDiff > 0 ? '+' : ''}${r.minutesDiff} min
+           </span>`
+        : '<span class="text-muted-foreground">—</span>';
+
+      let justificar = '<span class="text-muted-foreground">—</span>';
+      if (r.excuse) {
+        const mapa = { PENDING: 'Pendiente', APPROVED: 'Aprobada', REJECTED: 'Rechazada' };
+        justificar = `<a href="/excusas" class="text-xs font-medium text-primary transition hover:underline">
+                        Justificación: ${texto(mapa[r.excuse.status] || r.excuse.status)}
+                      </a>`;
+      } else if (r.status === 'LATE' || r.status === 'EARLY_DEPARTURE') {
+        const datos = JSON.stringify({ id: r.id, date: r.date, status: r.status }).replace(/"/g, '&quot;');
+        justificar = `<button type="button" data-justificar="${datos}"
+                        class="text-xs font-medium text-primary transition hover:underline">
+                        Justificar
+                      </button>`;
+      }
+
+      return `
+        <tr class="transition hover:bg-muted/40">
+          <td class="whitespace-nowrap px-5 py-3 font-medium text-foreground">${texto(r.date)}</td>
+          <td class="whitespace-nowrap px-5 py-3 tabular-nums text-foreground">${pintarHora(r.registeredAt)}</td>
+          <td class="whitespace-nowrap px-5 py-3">
+            <span class="inline-flex items-center rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground">
+              ${r.type === 'CHECK_IN' ? 'Entrada' : 'Salida'}
+            </span>
+          </td>
+          <td class="px-5 py-3 text-muted-foreground">${texto(r.schedule ? r.schedule.shift.name : '—')}</td>
+          <td class="whitespace-nowrap px-5 py-3 tabular-nums text-muted-foreground">${texto(r.expectedTime || '—')}</td>
+          <td class="whitespace-nowrap px-5 py-3">${diferencia}</td>
+          <td class="whitespace-nowrap px-5 py-3">
+            <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${claseEstado(r.status)}">
+              ${texto(ETIQUETA_ESTADO[r.status] || r.status)}
+            </span>
+          </td>
+          <td class="whitespace-nowrap px-5 py-3">${justificar}</td>
+        </tr>`;
+    }).join('');
+
+    pintarPaginacion(meta);
+    enlazarJustificar();
+  }
+
+  function pintarPaginacion(meta) {
+    const contenedor = document.getElementById('paginacion');
+    if (!meta.totalPages || meta.totalPages <= 1) {
+      contenedor.innerHTML = '';
+      return;
+    }
+
+    const anterior = `<button type="button" data-pagina="${meta.page - 1}"
+        class="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground transition
+               hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+        ${meta.hasPreviousPage ? '' : 'disabled'}>Anterior</button>`;
+
+    const siguiente = `<button type="button" data-pagina="${meta.page + 1}"
+        class="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground transition
+               hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+        ${meta.hasNextPage ? '' : 'disabled'}>Siguiente</button>`;
+
+    contenedor.innerHTML = `
+      <p class="text-xs text-muted-foreground">Página ${meta.page} de ${meta.totalPages}</p>
+      <div class="flex gap-2">${anterior}${siguiente}</div>`;
+
+    contenedor.querySelectorAll('[data-pagina]').forEach((boton) => {
+      boton.addEventListener('click', () => {
+        pagina = Number(boton.dataset.pagina);
+        cargar();
+      });
+    });
+  }
+
+  // ── Justificar marcación ──────────────────────────────────────
+  const MODAL_J = document.getElementById('modal-justificar');
+  const FORM_J = document.getElementById('form-justificar');
+  const J_FECHA = document.getElementById('just-fecha');
+  const J_TIPO = document.getElementById('just-tipo');
+  const J_ATT = document.getElementById('just-attendance-id');
+  const J_AVISO = document.getElementById('just-aviso');
+  const J_SUBMIT = document.getElementById('just-enviar');
+
+  function abrirJustificar(datos) {
+    if (!MODAL_J) return;
+    J_ATT.value = datos.id;
+    J_FECHA.textContent = datos.date;
+    J_TIPO.textContent = datos.status === 'LATE' ? 'Llegada tarde' : 'Salida anticipada';
+    FORM_J.reset();
+    J_ATT.value = datos.id;
+    if (J_AVISO) { J_AVISO.classList.add('hidden'); J_AVISO.textContent = ''; }
+    MODAL_J.classList.remove('hidden');
+    MODAL_J.classList.add('flex');
+  }
+
+  function cerrarJustificar() {
+    if (!MODAL_J) return;
+    MODAL_J.classList.add('hidden');
+    MODAL_J.classList.remove('flex');
+  }
+
+  if (document.getElementById('cancelar-justificar')) {
+    document.getElementById('cancelar-justificar').addEventListener('click', cerrarJustificar);
+  }
+  if (document.getElementById('modal-justificar-velo')) {
+    document.getElementById('modal-justificar-velo').addEventListener('click', cerrarJustificar);
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && MODAL_J && !MODAL_J.classList.contains('hidden')) cerrarJustificar();
+  });
+
+  if (FORM_J) {
+    FORM_J.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!J_ATT.value) return;
+      if (J_SUBMIT) { J_SUBMIT.disabled = true; J_SUBMIT.textContent = 'Enviando...'; }
+      try {
+        const fd = new FormData(FORM_J);
+        await Api.subir('/excuses', fd);
+        cerrarJustificar();
+        await cargar();
+      } catch (error) {
+        if (J_AVISO) {
+          J_AVISO.textContent = error.mensaje || 'No se pudo enviar la justificación';
+          J_AVISO.className = 'rounded-lg bg-destructive/10 px-3 py-2 text-sm text-red-700';
+          J_AVISO.classList.remove('hidden');
+        } else {
+          alert(error.mensaje || 'No se pudo enviar la justificación');
+        }
+      } finally {
+        if (J_SUBMIT) { J_SUBMIT.disabled = false; J_SUBMIT.textContent = 'Enviar excusa'; }
+      }
+    });
+  }
+
+  function enlazarJustificar() {
+    FILAS.querySelectorAll('[data-justificar]').forEach((boton) => {
+      boton.addEventListener('click', () => {
+        try {
+          const datos = JSON.parse(boton.dataset.justificar);
+          abrirJustificar(datos);
+        } catch (e) {}
+      });
+    });
+  }
+
+  document.getElementById('limpiar').addEventListener('click', () => {
+    Object.values(filtros).forEach((campo) => { campo.value = ''; });
+    pagina = 1;
+    cargar();
+  });
+
+  document.querySelectorAll('[data-hora]').forEach((nodo) => {
+    nodo.textContent = pintarHora(nodo.dataset.hora);
+  });
+
+  cargar();
+</script>
+{% endblock %}

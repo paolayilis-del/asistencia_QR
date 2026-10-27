@@ -22,18 +22,22 @@ from .acceso import Permiso, Rol, RolPermiso, SesionRefresco, Usuario
 from .base import BorradoLogico, ConEstado, MarcasTiempo, nuevo_id
 from .enumeraciones import (
     ETIQUETA_ACCION_AUDITORIA,
+    ETIQUETA_ESTADO_EXCUSA,
     ETIQUETA_ESTADO_MARCACION,
     ETIQUETA_ESTADO_REGISTRO,
     ETIQUETA_NIVEL_EDUCATIVO,
+    ETIQUETA_TIPO_EXCUSA,
     ETIQUETA_TIPO_MARCACION,
     AccionAuditoria,
+    EstadoExcusa,
     EstadoMarcacion,
     EstadoRegistro,
     NivelEducativo,
     TipoAjuste,
+    TipoExcusa,
     TipoMarcacion,
 )
-from .operacion import Ajuste, Auditoria, Marcacion
+from .operacion import Ajuste, Auditoria, Excusa, Marcacion
 
 __all__ = [
     # Acceso
@@ -53,17 +57,22 @@ __all__ = [
     "Horario",
     # Operación
     "Marcacion",
+    "Excusa",
     "Auditoria",
     "Ajuste",
     # Enumeraciones
     "EstadoRegistro",
     "TipoMarcacion",
     "EstadoMarcacion",
+    "EstadoExcusa",
+    "TipoExcusa",
     "AccionAuditoria",
     "TipoAjuste",
     "NivelEducativo",
     "ETIQUETA_ESTADO_MARCACION",
     "ETIQUETA_TIPO_MARCACION",
+    "ETIQUETA_ESTADO_EXCUSA",
+    "ETIQUETA_TIPO_EXCUSA",
     "ETIQUETA_ACCION_AUDITORIA",
     "ETIQUETA_ESTADO_REGISTRO",
     "ETIQUETA_NIVEL_EDUCATIVO",

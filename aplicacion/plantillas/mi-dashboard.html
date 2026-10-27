@@ -1,0 +1,288 @@
+{% extends "panel.html" %}
+{% block titulo %}Mi dashboard · Sistema de Asistencia Docente{% endblock %}
+
+{# El panel del docente responde a tres preguntas: cómo vengo, qué puedo marcar
+   ahora y qué fue lo último que registré. Solo aparecen sus datos. #}
+
+{% macro tarjeta(etiqueta, valor, pie, color, icono) %}
+<div class="surface-card p-5">
+  <div class="flex items-start justify-between gap-3">
+    <div class="min-w-0">
+      <p class="truncate text-sm font-medium text-muted-foreground">{{ etiqueta }}</p>
+      <p class="mt-2 text-3xl font-bold tracking-tight text-foreground">{{ valor }}</p>
+      <p class="mt-1 truncate text-xs text-muted-foreground">{{ pie }}</p>
+    </div>
+    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl {{ color }}">
+      {{ icono | safe }}
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+{% set s = panel.summary %}
+
+{% block contenido %}
+<div class="mx-auto max-w-[1400px] space-y-5 animate-fade-in">
+
+  {# ── Saludo y estado de hoy ───────────────────────────────────── #}
+  <div class="surface-card flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex min-w-0 items-center gap-4">
+      <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+        <svg viewBox="0 0 24 24" fill="none" class="h-6 w-6 text-primary" aria-hidden="true">
+          <rect x="3" y="3" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/>
+          <rect x="14" y="3" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/>
+          <rect x="3" y="14" width="7" height="7" rx="1.6" stroke="currentColor" stroke-width="1.7"/>
+          <path d="M14 17.5l2.5 2.5L21 15" stroke="#10B981" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <h2 class="truncate text-2xl font-bold tracking-tight text-foreground">
+          Hola, {{ usuario.nombre.split(' ')[0] }}
+        </h2>
+        <p class="truncate text-sm text-muted-foreground">
+          {{ panel.estado.dayName }} {{ panel.date }} · {% if s.workedDays %}asististe {{ s.workedDays }} día(s){% else %}sin marcaciones aún{% endif %}
+        </p>
+      </div>
+    </div>
+
+    <div class="flex shrink-0 flex-wrap items-center gap-2">
+      <a href="/mi-asistencia"
+         class="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm
+                font-medium text-foreground transition hover:bg-muted">
+        Ver mi asistencia
+      </a>
+      <a href="/excusas"
+         class="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold
+                text-primary-foreground shadow-glow transition hover:bg-primary-hover">
+        <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4" aria-hidden="true">
+          <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        Subir excusa
+      </a>
+    </div>
+  </div>
+
+  {# ── Marcación de hoy ────────────────────────────────────────── #}
+  {# Se resuelve con la misma lógica que la pantalla de escaneo: si el docente
+     no tiene horario, o ya marcó salida, se explica por qué en vez de
+     mostrar un botón que no funcionaría. #}
+  <div class="surface-card overflow-hidden">
+    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+      <div>
+        <h3 class="text-base font-semibold text-foreground">Marcación de hoy</h3>
+        <p class="text-xs text-muted-foreground">
+          {{ panel.estado.currentTime }} · zona {{ panel.estado.timezone }}
+        </p>
+      </div>
+      <a href="/escanear" class="text-sm font-medium text-primary transition hover:underline">
+        Escanear QR
+      </a>
+    </div>
+
+    <div class="p-5">
+      {% if panel.estado.blockedReason %}
+        <p class="flex items-start gap-2 text-sm text-muted-foreground">
+          <svg viewBox="0 0 24 24" fill="none" class="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/>
+            <path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+          </svg>
+          {{ panel.estado.blockedReason }}
+        </p>
+      {% else %}
+        <div class="flex flex-wrap gap-3">
+          <a href="/escanear"
+             class="inline-flex h-11 items-center gap-2 rounded-lg px-5 text-sm font-semibold transition
+                    {% if panel.estado.canCheckIn %}bg-primary text-primary-foreground shadow-glow hover:bg-primary-hover
+                    {% else %}pointer-events-none bg-muted text-muted-foreground{% endif %}">
+            Registrar entrada
+          </a>
+          <a href="/escanear"
+             class="inline-flex h-11 items-center gap-2 rounded-lg border border-border bg-card px-5
+                    text-sm font-semibold text-foreground transition
+                    {% if panel.estado.canCheckOut %}hover:bg-muted
+                    {% else %}pointer-events-none opacity-50{% endif %}">
+            Registrar salida
+          </a>
+        </div>
+      {% endif %}
+
+      {% if panel.estado.todayRecords %}
+        <ul class="mt-4 flex flex-wrap gap-2">
+          {% for registro in panel.estado.todayRecords %}
+          <li class="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-foreground">
+            {{ 'Entrada' if registro.type == 'CHECK_IN' else 'Salida' }}
+            <span class="tabular-nums text-muted-foreground" data-hora="{{ registro.registeredAt }}"></span>
+            {% if registro.status == 'LATE' %}
+              <span class="font-semibold text-amber-700">+{{ registro.minutesDiff }} min</span>
+            {% elif registro.status == 'ON_TIME' %}
+              <span class="font-semibold text-emerald-700">A tiempo</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Indicadores propios ─────────────────────────────────────── #}
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    {{ tarjeta('Días con asistencia', s.workedDays,
+               s.total ~ ' marcación(es) en total', 'bg-primary/10 text-primary',
+               '<svg viewBox="0 0 24 24" fill="none" class="h-5 w-5"><rect x="3.5" y="5" width="17" height="15" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M8 11.5l2.5 2.5L16 9" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>') }}
+
+    {{ tarjeta('Puntualidad', s.punctualityRate ~ '%',
+               s.onTime ~ ' puntual(es) · ' ~ s.late ~ ' tarde', 'bg-success/10 text-emerald-600',
+               '<svg viewBox="0 0 24 24" fill="none" class="h-5 w-5"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>') }}
+
+    {{ tarjeta('Entradas', s.checkIns,
+               s.checkOuts ~ ' salida(s) registrada(s)', 'bg-accent text-accent-foreground',
+               '<svg viewBox="0 0 24 24" fill="none" class="h-5 w-5"><path d="M10 17l-5-5 5-5M5 12h9" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>') }}
+
+    {{ tarjeta('Este mes', panel.month.records,
+               panel.month.late ~ ' tardanza(s) en ' ~ panel.month.elapsedDays ~ ' día(s)', 'bg-warning/10 text-amber-600',
+               '<svg viewBox="0 0 24 24" fill="none" class="h-5 w-5"><rect x="4" y="3.5" width="16" height="17" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M8 9h8M8 13h8M8 17h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>') }}
+  </div>
+
+  {# ── Tendencia y resumen ─────────────────────────────────────── #}
+  <div class="grid gap-4 lg:grid-cols-3">
+    <div class="surface-card p-5 lg:col-span-2">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h3 class="text-base font-semibold text-foreground">Mis últimas 8 semanas</h3>
+        <div class="flex items-center gap-4 text-xs text-muted-foreground">
+          <span class="flex items-center gap-1.5">
+            <span class="h-2.5 w-2.5 rounded-sm bg-success"></span>Puntuales
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="h-2.5 w-2.5 rounded-sm bg-warning"></span>Tardanzas
+          </span>
+        </div>
+      </div>
+
+      {% set maximo = panel.week | map(attribute='total') | max %}
+      <div class="mt-6 flex h-40 items-end gap-2 sm:gap-3">
+        {% for semana in panel.week %}
+        <div class="flex min-w-0 flex-1 flex-col items-center gap-2">
+          <div class="flex h-32 w-full flex-col justify-end overflow-hidden rounded-md bg-muted/60"
+               title="{{ semana.total }} marcación(es): {{ semana.onTime }} puntual(es), {{ semana.late }} tardanza(s)">
+            {% if semana.late %}
+            <div class="w-full bg-warning" style="height: {{ (semana.late / maximo * 100) if maximo else 0 }}%"></div>
+            {% endif %}
+            {% if semana.onTime %}
+            <div class="w-full bg-success" style="height: {{ (semana.onTime / maximo * 100) if maximo else 0 }}%"></div>
+            {% endif %}
+          </div>
+          <span class="truncate text-[11px] font-medium text-muted-foreground">{{ semana.week }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="mt-4 text-center text-xs text-muted-foreground">
+        {% if maximo %}
+          Cada barra suma las marcaciones de esa semana, de verde las puntuales y de ámbar las tardías.
+        {% else %}
+          Todavía no hay marcaciones suficientes para dibujar la tendencia.
+        {% endif %}
+      </p>
+    </div>
+
+    <div class="surface-card p-5">
+      <h3 class="text-sm font-semibold text-foreground">Cómo vengo de puntualidad</h3>
+
+      <div class="mt-5 flex items-center gap-5">
+        <div class="donut h-24 w-24 shrink-0"
+             style="--donut: conic-gradient(#10B981 0 {{ s.punctualityRate }}%, hsl(var(--muted)) {{ s.punctualityRate }}% 100%)">
+          <div class="donut-hueco">
+            <span class="text-lg font-bold tabular-nums text-foreground">{{ s.punctualityRate }}%</span>
+          </div>
+        </div>
+        <dl class="min-w-0 flex-1 space-y-1.5 text-sm">
+          <div class="flex items-center justify-between gap-2">
+            <dt class="flex items-center gap-1.5 text-muted-foreground">
+              <span class="h-2.5 w-2.5 rounded-sm bg-success"></span>Puntuales
+            </dt>
+            <dd class="font-semibold tabular-nums text-foreground">{{ s.onTime }}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <dt class="flex items-center gap-1.5 text-muted-foreground">
+              <span class="h-2.5 w-2.5 rounded-sm bg-warning"></span>Tardanzas
+            </dt>
+            <dd class="font-semibold tabular-nums text-foreground">{{ s.late }}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <dt class="flex items-center gap-1.5 text-muted-foreground">
+              <span class="h-2.5 w-2.5 rounded-sm bg-destructive"></span>Salida anticipada
+            </dt>
+            <dd class="font-semibold tabular-nums text-foreground">{{ s.earlyDeparture }}</dd>
+          </div>
+        </dl>
+      </div>
+
+      {% if s.averageMinutesDiff %}
+      <p class="mt-5 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+        Promedio de todas tus marcaciones:
+        <span class="font-semibold text-foreground">{{ s.averageMinutesDiff }} min</span>
+        de diferencia frente a la hora del horario.
+      </p>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Últimas marcaciones ─────────────────────────────────────── #}
+  <div class="surface-card p-5">
+    <div class="flex items-center justify-between gap-3">
+      <h3 class="text-base font-semibold text-foreground">Mis últimas marcaciones</h3>
+      <a href="/mi-asistencia" class="text-sm font-medium text-primary transition hover:underline">
+        Ver el detalle
+      </a>
+    </div>
+
+    {% if panel.recent %}
+    <ul class="mt-4 divide-y divide-border">
+      {% for registro in panel.recent %}
+      <li class="flex flex-wrap items-center justify-between gap-3 py-3">
+        <div class="min-w-0">
+          <p class="truncate text-sm font-medium text-foreground">
+            {{ 'Entrada' if registro.type == 'CHECK_IN' else 'Salida' }}
+            <span class="ml-1 font-normal text-muted-foreground" data-hora="{{ registro.registeredAt }}"></span>
+          </p>
+          <p class="truncate text-xs text-muted-foreground">
+            {{ registro.date }}
+            {%- if registro.schedule %} · {{ registro.schedule.shift.name }}{% endif -%}
+            {%- if registro.expectedTime %} · esperada {{ registro.expectedTime }}{% endif -%}
+          </p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          {% if registro.minutesDiff %}
+          <span class="tabular-nums text-xs font-medium {{ 'text-amber-700' if registro.minutesDiff > 0 else 'text-muted-foreground' }}">
+            {{ '+' if registro.minutesDiff > 0 }}{{ registro.minutesDiff }} min
+          </span>
+          {% endif %}
+          <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium
+                       {% if registro.status == 'ON_TIME' %}border-success/20 bg-success/10 text-emerald-700
+                       {% elif registro.status == 'LATE' %}border-warning/20 bg-warning/10 text-amber-700
+                       {% else %}border-destructive/20 bg-destructive/10 text-red-700{% endif %}">
+            {{ {'ON_TIME': 'Puntual', 'LATE': 'Tarde', 'EARLY_DEPARTURE': 'Salida anticipada'}[registro.status] }}
+          </span>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="mt-4 text-sm text-muted-foreground">
+      Aún no tienes marcaciones registradas. Cuando escanees el QR institucional aparecerán aquí.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block guiones_pagina %}
+<script>
+  // Las horas se pintan en el navegador para respetar la zona horaria del lector
+  document.querySelectorAll('[data-hora]').forEach((nodo) => {
+    nodo.textContent = new Date(nodo.dataset.hora).toLocaleTimeString('es-CO', {
+      hour: '2-digit', minute: '2-digit',
+    });
+  });
+</script>
+{% endblock %}

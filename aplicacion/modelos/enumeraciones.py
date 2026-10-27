@@ -58,6 +58,22 @@ class TipoAjuste(str, Enum):
     JSON = "JSON"
 
 
+class TipoExcusa(str, Enum):
+    """Tipo `excuse_type`."""
+
+    INCAPACIDAD = "INCAPACIDAD"   # incapacidad médica
+    PERMISO = "PERMISO"           # permisos o comisiones
+    OTRO = "OTRO"                 # cualquier otro motivo
+
+
+class EstadoExcusa(str, Enum):
+    """Tipo `excuse_status`."""
+
+    PENDIENTE = "PENDING"
+    APROBADA = "APPROVED"
+    RECHAZADA = "REJECTED"
+
+
 class NivelEducativo(str, Enum):
     """
     Tipo `education_level`.
@@ -102,6 +118,18 @@ ETIQUETA_ACCION_AUDITORIA = {
 ETIQUETA_ESTADO_REGISTRO = {
     "ACTIVE": "Activo",
     "INACTIVE": "Inactivo",
+}
+
+ETIQUETA_TIPO_EXCUSA = {
+    "INCAPACIDAD": "Incapacidad",
+    "PERMISO": "Permiso",
+    "OTRO": "Otro motivo",
+}
+
+ETIQUETA_ESTADO_EXCUSA = {
+    "PENDING": "En revisión",
+    "APPROVED": "Aprobada",
+    "REJECTED": "Rechazada",
 }
 
 ETIQUETA_NIVEL_EDUCATIVO = {

@@ -74,6 +74,27 @@ ICONOS = {
         '<circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/>'
         '<path d="M19 12a7 7 0 00-.1-1.2l2-1.5-2-3.5-2.3.9a7 7 0 00-2-1.2L14.5 3h-5l-.1 2.5a7 7 0 00-2 1.2L5 5.8 3 9.3l2 1.5A7 7 0 005 12c0 .4 0 .8.1 1.2L3 14.7l2 3.5 2.3-.9a7 7 0 002 1.2L9.5 21h5l.1-2.5a7 7 0 002-1.2l2.3.9 2-3.5-2-1.5c.1-.4.1-.8.1-1.2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>'
     ),
+    # Los tres iconos siguientes son para las pantallas del docente.
+    "historial": _icono(
+        '<circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>'
+    ),
+    "excusas": _icono(
+        '<path d="M7 3.5h7.5L19 8v12.5a1 1 0 01-1 1H7a1 1 0 01-1-1v-16a1 1 0 011-1z"'
+        ' stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'
+        '<path d="M14 3.5V8h4.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'
+        '<path d="M9 13.5l2 2 4-4.2" stroke="currentColor" stroke-width="1.8"'
+        ' stroke-linecap="round" stroke-linejoin="round"/>'
+    ),
+    # Bandeja de revisión: documento con un sello de aprobación encima.
+    "revisar": _icono(
+        '<path d="M7 3.5h7.5L19 8v12.5a1 1 0 01-1 1H7a1 1 0 01-1-1v-16a1 1 0 011-1z"'
+        ' stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'
+        '<path d="M14 3.5V8h4.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'
+        '<circle cx="12" cy="14" r="3.2" stroke="currentColor" stroke-width="1.6"/>'
+        '<path d="M14.4 16.4l2.1 2.1" stroke="currentColor" stroke-width="1.6"'
+        ' stroke-linecap="round"/>'
+    ),
 }
 
 
@@ -84,6 +105,7 @@ ESTRUCTURA = (
         (
             ("/dashboard", "Dashboard", "panel", "dashboard.read"),
             ("/asistencia", "Asistencia", "asistencia", "attendance.read"),
+            ("/mi-asistencia", "Mi asistencia", "historial", "attendance.self"),
             ("/escanear", "Escanear QR", "qr", "attendance.self"),
             ("/reportes", "Reportes", "reportes", "reports.read"),
             ("/qr", "Código QR", "qr", "settings.read"),
@@ -103,6 +125,11 @@ ESTRUCTURA = (
     (
         "Administración",
         (
+            # La primera entrada es la del docente: presentar una justificación
+            # es una gestión propia, no una tarea administrativa. Aparece aquí
+            # porque la pidió así, pero la resuelve `excuses.self`, no el rol.
+            ("/excusas", "Mis excusas", "excusas", "excuses.self"),
+            ("/revision-excusas", "Revisión de excusas", "revisar", "excuses.review"),
             ("/usuarios", "Usuarios", "usuarios", "users.read"),
             ("/roles", "Roles", "roles", "roles.read"),
             ("/configuracion", "Configuración", "ajustes", "settings.read"),

@@ -14,10 +14,10 @@ concentra las reglas de negocio del sistema:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from flask import request
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 
 from ...comun import auditoria
 from ...comun.consultas import Paginacion, aplicar_busqueda, aplicar_orden, paginar
@@ -39,12 +39,15 @@ from ...comun.tiempo import (
 )
 from ...extensiones import bd
 from ...modelos import (
+    ETIQUETA_ESTADO_EXCUSA,
     ETIQUETA_ESTADO_MARCACION,
     ETIQUETA_TIPO_MARCACION,
     AccionAuditoria,
     Docente,
+    EstadoExcusa,
     EstadoMarcacion,
     EstadoRegistro,
+    Excusa,
     Horario,
     Jornada,
     Marcacion,
@@ -357,6 +360,7 @@ def _mensaje(tipo: TipoMarcacion, estado: EstadoMarcacion, diferencia: int) -> s
 
 def serializar(fila: Marcacion) -> dict:
     docente, horario = fila.docente, fila.horario
+    excusa = getattr(fila, "excusa_vinculada", None)
     return {
         "id": fila.id,
         "teacherId": fila.teacher_id,
@@ -396,6 +400,15 @@ def serializar(fila: Marcacion) -> dict:
                 "shift": {"id": horario.jornada.id, "name": horario.jornada.name},
             }
             if horario
+            else None
+        ),
+        "excuse": (
+            {
+                "id": excusa.id,
+                "status": excusa.status.value,
+                "statusLabel": ETIQUETA_ESTADO_EXCUSA.get(excusa.status.value),
+            }
+            if excusa
             else None
         ),
     }
@@ -701,13 +714,248 @@ def estado_propio(actor: UsuarioAutenticado) -> dict:
 
 
 def historial_propio(actor: UsuarioAutenticado) -> dict:
-    """Historial reciente del docente autenticado."""
+    """
+    Historial del docente autenticado, con sus filtros y un resumen del periodo.
+
+    Los filtros de mes y de estado los aplica `_consulta`, que ya sabe leerlos.
+    El resumen se calcula sobre todo lo filtrado, no sobre la página visible: de
+    lo contrario el docente vería "2 tardanzas" un día y "17" al cambiar de
+    página, y ninguna de las dos cifras quadraría con la tabla.
+    """
     if not actor.docente_id:
         raise Prohibido("Su usuario no está vinculado a un docente")
 
     paginacion = Paginacion("registeredAt")
-    consulta = _consulta(paginacion).where(Marcacion.teacher_id == actor.docente_id)
-    elementos, total = paginar(consulta, paginacion)
-    return resultado_paginado(
-        [serializar(e) for e in elementos], total, paginacion.pagina, paginacion.limite
+    consulta = (
+        _consulta(paginacion)
+        .where(Marcacion.teacher_id == actor.docente_id)
+        .outerjoin(
+            Excusa,
+            and_(
+                Excusa.attendance_id == Marcacion.id,
+                Excusa.deleted_at.is_(None),
+            ),
+        )
+        .options(*[])
     )
+    # Traemos la excusa vinculada para mostrar el botón/estado sin consultas
+    # extra: una marcación solo puede tener una excusa ligada por attendance_id.
+    consulta = consulta.add_columns(Excusa).distinct()
+    elementos = paginar(consulta, paginacion)
+    filas = elementos[0]
+    total = elementos[1]
+
+    items = []
+    for fila in filas:
+        if isinstance(fila, tuple):
+            marcacion = fila[0]
+            excusa = fila[1]
+        else:
+            marcacion = fila
+            excusa = None
+        marcacion.excusa_vinculada = excusa
+        items.append(serializar(marcacion))
+
+    return resultado_paginado(
+        items,
+        total,
+        paginacion.pagina,
+        paginacion.limite,
+        extra={"resumen": resumen_propio(actor, _filtros_de_consulta())},
+    )
+
+
+def _filtros_de_consulta() -> dict:
+    """Los mismos filtros que se aplicaron, para resumirlos sin volver a leerlos."""
+    tipo = request.args.get("type")
+    estado = request.args.get("status")
+    return {
+        "type": tipo if tipo in ("CHECK_IN", "CHECK_OUT") else None,
+        "status": estado if estado in ("ON_TIME", "LATE", "EARLY_DEPARTURE") else None,
+        "dateFrom": request.args.get("dateFrom") or None,
+        "dateTo": request.args.get("dateTo") or None,
+    }
+
+
+def resumen_propio(actor: UsuarioAutenticado, filtros: dict | None = None) -> dict:
+    """
+    Cifras del docente sobre el periodo que se está mirando.
+
+    Sin filtros cuenta todo su historial. Con ellos, el periodo filtrado: así
+    el detalle de un mes y el resumen de la pantalla de ese mes cuentan lo mismo.
+    """
+    if not actor.docente_id:
+        raise Prohibido("Su usuario no está vinculado a un docente")
+
+    filtros = filtros or {}
+    consulta = select(
+        func.count(Marcacion.id),
+        func.count(Marcacion.id).filter(Marcacion.type == TipoMarcacion.ENTRADA),
+        func.count(Marcacion.id).filter(Marcacion.type == TipoMarcacion.SALIDA),
+        func.count(Marcacion.id).filter(Marcacion.status == EstadoMarcacion.PUNTUAL),
+        func.count(Marcacion.id).filter(Marcacion.status == EstadoMarcacion.TARDE),
+        func.count(Marcacion.id).filter(
+            Marcacion.status == EstadoMarcacion.SALIDA_ANTICIPADA
+        ),
+        func.coalesce(func.sum(Marcacion.minutes_diff), 0),
+    ).where(Marcacion.teacher_id == actor.docente_id, Marcacion.deleted_at.is_(None))
+
+    if filtros.get("type") in ("CHECK_IN", "CHECK_OUT"):
+        consulta = consulta.where(Marcacion.type == TipoMarcacion(filtros["type"]))
+    if filtros.get("status") in ("ON_TIME", "LATE", "EARLY_DEPARTURE"):
+        consulta = consulta.where(Marcacion.status == EstadoMarcacion(filtros["status"]))
+    if filtros.get("dateFrom"):
+        consulta = consulta.where(Marcacion.date >= solo_fecha(filtros["dateFrom"]))
+    if filtros.get("dateTo"):
+        consulta = consulta.where(Marcacion.date <= solo_fecha(filtros["dateTo"]))
+
+    (
+        total,
+        entradas,
+        salidas,
+        puntuales,
+        tardanzas,
+        anticipadas,
+        minutos,
+    ) = bd.session.execute(consulta).one()
+
+    # El porcentaje de puntualidad se mide sobre las entradas: una salida nunca
+    # es "puntual" ni "tarde" en el mismo sentido que una entrada.
+    base = puntos = (puntuales or 0) + (tardanzas or 0)
+    pct_puntualidad = round((puntuales or 0) * 100 / base, 1) if base else 0.0
+
+    # Los días con marcación cuentan dentro del mismo periodo que el resto de
+    # cifras. Si se dejaran sin filtrar, el detalle de un mes mostraría, por
+    # ejemplo, 22 días trabajados junto a las entradas de ese mes: dos números
+    # que describen periodos distintos en la misma tarjeta.
+    dias_consulta = select(func.count(func.distinct(Marcacion.date))).where(
+        Marcacion.teacher_id == actor.docente_id, Marcacion.deleted_at.is_(None)
+    )
+    if filtros.get("dateFrom"):
+        dias_consulta = dias_consulta.where(Marcacion.date >= solo_fecha(filtros["dateFrom"]))
+    if filtros.get("dateTo"):
+        dias_consulta = dias_consulta.where(Marcacion.date <= solo_fecha(filtros["dateTo"]))
+
+    dias = bd.session.execute(dias_consulta).scalar_one()
+
+    return {
+        "total": total or 0,
+        "checkIns": entradas or 0,
+        "checkOuts": salidas or 0,
+        "onTime": puntuales or 0,
+        "late": tardanzas or 0,
+        "earlyDeparture": anticipadas or 0,
+        "punctualityRate": pct_puntualidad,
+        "workedDays": dias or 0,
+        "averageMinutesDiff": round((minutos or 0) / total, 1) if total else 0.0,
+    }
+
+
+def panel_propio(actor: UsuarioAutenticado) -> dict:
+    """
+    Dashboard del docente: sus propias cifras, no las de la institución.
+
+    Deliberadamente no reutiliza `reportes.panel()`: aquel muestra el total de
+    docentes y las tardanzas de todos, que es información de otra persona. Aquí
+    solo entran los datos del docente autenticado, más lo que puede marcar
+    ahora mismo para que la pantalla sirva también como acceso a la marcación.
+    """
+    if not actor.docente_id:
+        raise Prohibido("Su usuario no está vinculado a un docente")
+
+    zona = configuracion.texto(configuracion.CLAVES["ZONA_HORARIA"], "America/Bogota")
+    momento = ahora()
+    fecha = clave_fecha(momento, zona)
+    hoy = solo_fecha(fecha)
+
+    docente = bd.session.execute(
+        select(Docente).where(Docente.id == actor.docente_id, Docente.deleted_at.is_(None))
+    ).scalar_one_or_none()
+
+    resumen = resumen_propio(actor)
+
+    # Últimas marcaciones y las del mes en curso
+    recientes = list(
+        bd.session.execute(
+            select(Marcacion)
+            .where(Marcacion.teacher_id == actor.docente_id, Marcacion.deleted_at.is_(None))
+            .order_by(Marcacion.registered_at.desc())
+            .limit(8)
+        ).scalars().unique()
+    )
+
+    del_mes = bd.session.execute(
+        select(
+            func.count(Marcacion.id),
+            func.count(Marcacion.id).filter(Marcacion.status == EstadoMarcacion.TARDE),
+        ).where(
+            Marcacion.teacher_id == actor.docente_id,
+            Marcacion.date >= hoy.replace(day=1),
+            Marcacion.deleted_at.is_(None),
+        )
+    ).one()
+
+    # Serie de las últimas 8 semanas, para la gráfica de barras
+    serie = []
+    for semanas in range(7, -1, -1):
+        desde_mes = hoy.replace(day=1) - timedelta(days=7 * semanas)
+        hasta_mes = desde_mes + timedelta(days=6)
+        filas = bd.session.execute(
+            select(
+                func.count(Marcacion.id),
+                func.count(Marcacion.id).filter(Marcacion.status == EstadoMarcacion.PUNTUAL),
+                func.count(Marcacion.id).filter(Marcacion.status == EstadoMarcacion.TARDE),
+            ).where(
+                Marcacion.teacher_id == actor.docente_id,
+                Marcacion.date >= desde_mes,
+                Marcacion.date <= hasta_mes,
+                Marcacion.deleted_at.is_(None),
+            )
+        ).one()
+        serie.append(
+            {
+                "week": f"{desde_mes.strftime('%d/%m')}",
+                "total": filas[0] or 0,
+                "onTime": filas[1] or 0,
+                "late": filas[2] or 0,
+            }
+        )
+
+    # Días del mes que ya pasaron y en los que el docente no registró entrada
+    dias_transcurridos = hoy.day
+    entradas_mes = del_mes[0] or 0
+    marcaciones_hoy = bd.session.execute(
+        select(func.count(Marcacion.id)).where(
+            Marcacion.teacher_id == actor.docente_id,
+            Marcacion.date == hoy,
+            Marcacion.deleted_at.is_(None),
+        )
+    ).scalar_one()
+
+    return {
+        "teacher": (
+            {
+                "id": docente.id,
+                "code": docente.code,
+                "firstName": docente.first_name,
+                "lastName": docente.last_name,
+                "document": docente.document,
+                "status": docente.status.value,
+            }
+            if docente
+            else None
+        ),
+        "date": fecha,
+        "summary": resumen,
+        "month": {
+            "records": entradas_mes,
+            "late": del_mes[1] or 0,
+            "elapsedDays": dias_transcurridos,
+        },
+        "week": serie,
+        "recent": [serializar(m) for m in recientes],
+        "today": {"records": marcaciones_hoy or 0},
+        # El estado de marcación se reutiliza tal cual: la misma lógica que
+        # controla la pantalla de escaneo decide qué botón se muestra aquí.
+        "estado": estado_propio(actor),
+    }

@@ -1,0 +1,381 @@
+{% extends "panel.html" %}
+{% block titulo %}Mis excusas · Sistema de Asistencia Docente{% endblock %}
+
+{# Justificaciones del docente.
+
+   El formulario y el listado se construyen con la API porque la pantalla tiene
+   dos estados que cambian sin recargar: el resultado del envío y el estado de
+   revisión de cada excusa. La fecha llega en el formato que la base usa, y el
+   límite de un día hacia atrás evita justificar el futuro. #}
+
+{% macro clase_estado(estado) %}
+{%- if estado == 'APPROVED' -%}
+border-success/20 bg-success/10 text-emerald-700
+{%- elif estado == 'REJECTED' -%}
+border-destructive/20 bg-destructive/10 text-red-700
+{%- else -%}
+border-warning/20 bg-warning/10 text-amber-700
+{%- endif -%}
+{% endmacro %}
+
+{% block contenido %}
+<div class="mx-auto max-w-[1400px] space-y-5 animate-fade-in">
+
+  {# ── Estado de la solicitud ─────────────────────────────────── #}
+  <div class="surface-card flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex min-w-0 items-center gap-4">
+      <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+        <svg viewBox="0 0 24 24" fill="none" class="h-6 w-6 text-primary" aria-hidden="true">
+          <path d="M7 3.5h7.5L19 8v12.5a1 1 0 01-1 1H7a1 1 0 01-1-1v-16a1 1 0 011-1z"
+                stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+          <path d="M14 3.5V8h4.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+          <path d="M9 13.5l2 2 4-4.2" stroke="#10B981" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <h2 class="truncate text-2xl font-bold tracking-tight text-foreground">Mis excusas</h2>
+        <p class="truncate text-sm text-muted-foreground">
+          Justifica una ausencia, una tardanza o una salida anticipada y sigue el estado de revisión.
+        </p>
+      </div>
+    </div>
+    <div class="flex shrink-0 items-center gap-2">
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-warning/20 bg-warning/10 px-3 py-1 text-xs font-medium text-amber-700">
+        <span id="cifra-pendientes">—</span> en revisión
+      </span>
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-3 py-1 text-xs font-medium text-emerald-700">
+        <span id="cifra-aprobadas">—</span> aprobadas
+      </span>
+    </div>
+  </div>
+
+  <div class="grid gap-5 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+
+    {# ── Formulario ───────────────────────────────────────────── #}
+    <div class="surface-card h-fit p-5">
+      <h3 class="text-base font-semibold text-foreground">Presentar una justificación</h3>
+      <p class="mt-1 text-xs text-muted-foreground">
+        Se necesita un documento de respaldo: una incapacidad, un permiso o el oficio correspondiente.
+      </p>
+
+      <form id="formulario" class="mt-5 space-y-4" novalidate>
+        <div>
+          <label for="tipo" class="mb-1 block text-sm font-medium text-foreground">Motivo</label>
+          <select id="tipo" required
+                  class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground
+                         focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+            <option value="INCAPACIDAD">Incapacidad médica</option>
+            <option value="PERMISO">Permiso o comisión</option>
+            <option value="OTRO">Otro motivo</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="fecha" class="mb-1 block text-sm font-medium text-foreground">Fecha que justifica</label>
+          <input type="date" id="fecha" required
+                 class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground
+                        focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <p class="mt-1 text-xs text-muted-foreground">
+            Se puede justificar hasta el día de hoy, no fechas futuras.
+          </p>
+        </div>
+
+        <div>
+          <label for="motivo" class="mb-1 block text-sm font-medium text-foreground">Descripción</label>
+          <textarea id="motivo" rows="3" required minlength="10" maxlength="1000"
+                    placeholder="Explique brevemente lo ocurrido."
+                    class="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground
+                           placeholder:text-muted-foreground focus:border-primary focus:outline-none
+                           focus:ring-2 focus:ring-primary/20"></textarea>
+          <p class="mt-1 text-xs text-muted-foreground">Mínimo 10 caracteres.</p>
+        </div>
+
+        <div>
+          <label for="archivo" class="mb-1 block text-sm font-medium text-foreground">Documento</label>
+          <input type="file" id="archivo" required accept="application/pdf,image/jpeg,image/png,image/webp"
+                 class="block w-full cursor-pointer rounded-lg border border-input bg-card text-sm
+                        text-muted-foreground file:mr-3 file:cursor-pointer file:border-0 file:bg-primary/10
+                        file:px-3 file:py-2.5 file:text-sm file:font-medium file:text-primary
+                        focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <p class="mt-1 text-xs text-muted-foreground">PDF, JPG, PNG o WEBP. Máximo 5 MB.</p>
+        </div>
+
+        <div id="aviso" class="hidden rounded-lg px-3 py-2 text-sm"></div>
+
+        <button type="submit" id="enviar"
+                class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary
+                       px-5 text-sm font-semibold text-primary-foreground shadow-glow transition
+                       hover:bg-primary-hover disabled:pointer-events-none disabled:opacity-60">
+          <span id="texto-enviar">Enviar justificación</span>
+        </button>
+      </form>
+    </div>
+
+    {# ── Listado ──────────────────────────────────────────────── #}
+    <div class="surface-card overflow-hidden">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+        <h3 class="text-base font-semibold text-foreground">Justificaciones enviadas</h3>
+        <div class="flex items-center gap-2">
+          <select id="filtro-estado"
+                  class="h-9 rounded-lg border border-input bg-card px-2.5 text-xs text-foreground
+                         focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+            <option value="">Todos los estados</option>
+            <option value="PENDING">En revisión</option>
+            <option value="APPROVED">Aprobadas</option>
+            <option value="REJECTED">Rechazadas</option>
+          </select>
+          <select id="filtro-tipo"
+                  class="h-9 rounded-lg border border-input bg-card px-2.5 text-xs text-foreground
+                         focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+            <option value="">Todos los motivos</option>
+            <option value="INCAPACIDAD">Incapacidad</option>
+            <option value="PERMISO">Permiso</option>
+            <option value="OTRO">Otro</option>
+          </select>
+        </div>
+      </div>
+
+      <ul id="lista" class="divide-y divide-border">
+        <li class="px-5 py-10 text-center text-sm text-muted-foreground">Cargando tus excusas…</li>
+      </ul>
+
+      <div id="paginacion" class="flex items-center justify-between gap-3 border-t border-border px-5 py-3"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block guiones_pagina %}
+<script>
+  const LISTA = document.getElementById('lista');
+  const AVISO = document.getElementById('aviso');
+  const FORMULARIO = document.getElementById('formulario');
+  const ENVIAR = document.getElementById('enviar');
+  const TEXTO_ENVIAR = document.getElementById('texto-enviar');
+  const ARCHIVO = document.getElementById('archivo');
+  const FECHA = document.getElementById('fecha');
+
+  const filtros = {
+    status: document.getElementById('filtro-estado'),
+    type: document.getElementById('filtro-tipo'),
+  };
+
+  let pagina = 1;
+
+  /** Escapa el texto de la base antes de meterlo en el HTML. */
+  const texto = (valor) => String(valor ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+
+  const claseEstado = (estado) => {
+    if (estado === 'APPROVED') return 'border-success/20 bg-success/10 text-emerald-700';
+    if (estado === 'REJECTED') return 'border-destructive/20 bg-destructive/10 text-red-700';
+    return 'border-warning/20 bg-warning/10 text-amber-700';
+  };
+
+  const peso = (bytes) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  const fechaLegible = (clave) => {
+    // Se parte el `AAAA-MM-DD` a mano: al pasarlo por `Date` el navegador lo
+    // interpreta como UTC y en Colombia muestra el día anterior.
+    const [a, m, d] = String(clave).split('-');
+    return `${d}/${m}/${a}`;
+  };
+
+  function mostrarAviso(mensaje, tipo) {
+    if (!mensaje) {
+      AVISO.classList.add('hidden');
+      return;
+    }
+    const estilos = {
+      error: 'bg-destructive/10 text-red-700',
+      exito: 'bg-success/10 text-emerald-700',
+    };
+    AVISO.className = `rounded-lg px-3 py-2 text-sm ${estilos[tipo] || estilos.error}`;
+    AVISO.textContent = mensaje;
+  }
+
+  // ── Fecha máxima: hoy, en hora local, no en UTC ───────────────
+  const hoy = new Date();
+  const hoyClave = [
+    hoy.getFullYear(),
+    String(hoy.getMonth() + 1).padStart(2, '0'),
+    String(hoy.getDate()).padStart(2, '0'),
+  ].join('-');
+  FECHA.max = hoyClave;
+
+  // ── Listado ───────────────────────────────────────────────────
+  async function cargar() {
+    const parametros = new URLSearchParams({ page: pagina, limit: 10 });
+    for (const [clave, campo] of Object.entries(filtros)) {
+      if (campo.value) parametros.set(clave, campo.value);
+    }
+
+    try {
+      const datos = await Api.get(`/excuses/me?${parametros}`);
+      pintar(datos);
+    } catch (error) {
+      LISTA.innerHTML = `<li class="px-5 py-10 text-center text-sm text-red-700">
+        No se pudieron cargar tus excusas. ${texto(error.mensaje)}</li>`;
+    }
+  }
+
+  function pintar(datos) {
+    const filas = datos.items || [];
+    const meta = datos.meta || {};
+
+    if (!filas.length) {
+      LISTA.innerHTML = `<li class="px-5 py-10 text-center text-sm text-muted-foreground">
+        Todavía no has presentado ninguna justificación.</li>`;
+      document.getElementById('paginacion').innerHTML = '';
+      return;
+    }
+
+    LISTA.innerHTML = filas.map((e) => {
+      const adjunto = e.fileUrl
+        ? `<a href="${texto(e.fileUrl)}" target="_blank" rel="noopener"
+              class="inline-flex items-center gap-1.5 text-xs font-medium text-primary transition hover:underline">
+             <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true">
+               <path d="M12 4v11M8 11l4 4 4-4M5 19h14" stroke="currentColor" stroke-width="1.8"
+                     stroke-linecap="round" stroke-linejoin="round"/>
+             </svg>
+             ${texto(e.fileName || 'Ver documento')}
+           </a>`
+        : '<span class="text-xs text-muted-foreground">Sin documento</span>';
+
+      // La respuesta de la revisión solo se muestra si el administrativo la
+      // escribió: un rechazo sin motivo no deja al docente saber qué hacer.
+      const revision = e.reviewNotes
+        ? `<p class="mt-2 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+             <span class="font-semibold text-foreground">Respuesta:</span> ${texto(e.reviewNotes)}
+           </p>`
+        : '';
+
+      return `
+        <li class="px-5 py-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm font-semibold text-foreground">${fechaLegible(e.date)}</span>
+                <span class="inline-flex items-center rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground">
+                  ${texto(e.typeLabel)}
+                </span>
+                <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${claseEstado(e.status)}">
+                  ${texto(e.statusLabel)}
+                </span>
+              </div>
+              <p class="mt-1.5 text-sm text-muted-foreground">${texto(e.reason)}</p>
+              <div class="mt-2">${adjunto}</div>
+              ${revision}
+            </div>
+          </div>
+        </li>`;
+    }).join('');
+
+    pintarPaginacion(meta);
+  }
+
+  function pintarPaginacion(meta) {
+    const contenedor = document.getElementById('paginacion');
+    if (!meta.totalPages || meta.totalPages <= 1) {
+      contenedor.innerHTML = '';
+      return;
+    }
+
+    contenedor.innerHTML = `
+      <p class="text-xs text-muted-foreground">Página ${meta.page} de ${meta.totalPages}</p>
+      <div class="flex gap-2">
+        <button type="button" data-pagina="${meta.page - 1}"
+                class="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground
+                       transition hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                ${meta.hasPreviousPage ? '' : 'disabled'}>Anterior</button>
+        <button type="button" data-pagina="${meta.page + 1}"
+                class="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground
+                       transition hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                ${meta.hasNextPage ? '' : 'disabled'}>Siguiente</button>
+      </div>`;
+
+    contenedor.querySelectorAll('[data-pagina]').forEach((boton) => {
+      boton.addEventListener('click', () => { pagina = Number(boton.dataset.pagina); cargar(); });
+    });
+  }
+
+  async function cargarResumen() {
+    try {
+      const datos = await Api.get('/excuses/me/summary');
+      document.getElementById('cifra-pendientes').textContent = datos.pending ?? 0;
+      document.getElementById('cifra-aprobadas').textContent = datos.approved ?? 0;
+    } catch (_) {
+      // El resumen es informativo: si falla, el listado sigue siendo lo importante.
+    }
+  }
+
+  // ── Envío ─────────────────────────────────────────────────────
+  FORMULARIO.addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    mostrarAviso('', 'error');
+
+    if (!ARCHIVO.files.length) {
+      mostrarAviso('Adjunte el documento que respalda la justificación.', 'error');
+      return;
+    }
+
+    // El cliente comprueba los 5 MB para no subir un archivo que el servidor
+    // va a rechazar. La comprobación real la vuelve a hacer el servidor.
+    if (ARCHIVO.files[0].size > 5 * 1024 * 1024) {
+      mostrarAviso('El documento supera el máximo de 5 MB.', 'error');
+      return;
+    }
+
+    const cuerpo = {
+      type: document.getElementById('tipo').value,
+      date: FECHA.value,
+      reason: document.getElementById('motivo').value.trim(),
+    };
+
+    if (!cuerpo.date) {
+      mostrarAviso('Indique la fecha que justifica.', 'error');
+      return;
+    }
+    if (cuerpo.reason.length < 10) {
+      mostrarAviso('La descripción debe tener al menos 10 caracteres.', 'error');
+      return;
+    }
+
+    const formulario = new FormData();
+    formulario.append('payload', JSON.stringify(cuerpo));
+    formulario.append('file', ARCHIVO.files[0]);
+
+    ENVIAR.disabled = true;
+    TEXTO_ENVIAR.textContent = 'Enviando…';
+
+    try {
+      await Api.subir('/excuses', formulario);
+      mostrarAviso('Justificación enviada. Queda en revisión.', 'exito');
+      FORMULARIO.reset();
+      FECHA.value = hoyClave;
+      pagina = 1;
+      await Promise.all([cargar(), cargarResumen()]);
+    } catch (error) {
+      mostrarAviso(error.mensaje || 'No se pudo enviar la justificación.', 'error');
+    } finally {
+      ENVIAR.disabled = false;
+      TEXTO_ENVIAR.textContent = 'Enviar justificación';
+    }
+  });
+
+  Object.values(filtros).forEach((campo) => {
+    campo.addEventListener('change', () => { pagina = 1; cargar(); });
+  });
+
+  FECHA.value = hoyClave;
+  cargar();
+  cargarResumen();
+</script>
+{% endblock %}

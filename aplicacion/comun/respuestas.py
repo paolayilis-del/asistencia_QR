@@ -53,14 +53,24 @@ def responder_error(
     return jsonify(cuerpo), codigo
 
 
-def resultado_paginado(elementos: list[Any], total: int, pagina: int, limite: int) -> dict[str, Any]:
+def resultado_paginado(
+    elementos: list[Any],
+    total: int,
+    pagina: int,
+    limite: int,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Estructura de listado. Réplica de `buildPaginatedResult`.
 
     La clave es `items`, no `data`: la interfaz ya la consume así.
+
+    `extra` añade claves al nivel superior, no dentro de `meta`. Lo usa el
+    historial del docente, que devuelve un resumen del periodo filtrado junto
+    con los registros: son datos hermanos, no parte de la paginación.
     """
     total_paginas = max(1, math.ceil(total / limite)) if limite else 1
-    return {
+    resultado: dict[str, Any] = {
         "items": elementos,
         "meta": {
             "page": pagina,
@@ -71,3 +81,6 @@ def resultado_paginado(elementos: list[Any], total: int, pagina: int, limite: in
             "hasPreviousPage": pagina > 1,
         },
     }
+    if extra:
+        resultado.update(extra)
+    return resultado

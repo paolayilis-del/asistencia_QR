@@ -9,13 +9,31 @@ from __future__ import annotations
 from datetime import date as Fecha, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, SmallInteger, String, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    LargeBinary,
+    SmallInteger,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..extensiones import bd
 from .base import BorradoLogico, MarcasTiempo, columna_uuid, enum_sql, nuevo_id
-from .enumeraciones import AccionAuditoria, EstadoMarcacion, TipoAjuste, TipoMarcacion
+from .enumeraciones import (
+    AccionAuditoria,
+    EstadoExcusa,
+    EstadoMarcacion,
+    TipoAjuste,
+    TipoExcusa,
+    TipoMarcacion,
+)
 
 
 class Marcacion(bd.Model, MarcasTiempo, BorradoLogico):
@@ -71,6 +89,69 @@ class Marcacion(bd.Model, MarcasTiempo, BorradoLogico):
         Index("attendances_status_idx", "status"),
         Index("attendances_schedule_id_idx", "schedule_id"),
         Index("attendances_deleted_at_idx", "deleted_at"),
+    )
+
+
+class Excusa(bd.Model, MarcasTiempo, BorradoLogico):
+    """
+    Excusa o justificación presentada por un docente.
+
+    El archivo no se guarda en el disco: viaja en la base de datos igual que la
+    fotografía del docente, para que no queden adjuntos huérfanos ni dependa de
+    una carpeta que el despliegue pueda perder.
+    """
+
+    __tablename__ = "excuses"
+
+    id: Mapped[str] = columna_uuid(primary_key=True, default=nuevo_id)
+
+    # Restrict: la evidencia de una ausencia no se pierde porque se borre el docente
+    teacher_id: Mapped[str] = columna_uuid(
+        ForeignKey("teachers.id", ondelete="RESTRICT", onupdate="CASCADE"), nullable=False
+    )
+    docente: Mapped["Docente"] = relationship(lazy="joined")
+
+    # Marcación que justifica, cuando se sabe cuál. Nulo si la ausencia no
+    # llegó a registrarse: la excusa también sirve para días sin marcación.
+    attendance_id: Mapped[str | None] = columna_uuid(
+        ForeignKey("attendances.id", ondelete="SET NULL", onupdate="CASCADE")
+    )
+
+    type: Mapped[TipoExcusa] = enum_sql(TipoExcusa, "excuse_type", nullable=False)
+    status: Mapped[EstadoExcusa] = enum_sql(
+        EstadoExcusa, "excuse_status", default=EstadoExcusa.PENDIENTE, nullable=False
+    )
+
+    # Día que justifica, en fecha local
+    date: Mapped[Fecha] = mapped_column(Date, nullable=False)
+
+    # Motivo escrito por el docente
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Adjunto de respaldo
+    file_name: Mapped[str | None] = mapped_column(String(200))
+    file_mime: Mapped[str | None] = mapped_column(String(80))
+    file_size: Mapped[int | None] = mapped_column(BigInteger)
+    file_data: Mapped[bytes | None] = mapped_column(LargeBinary)
+
+    # Quién recibe y resuelve la solicitud
+    reviewed_by_id: Mapped[str | None] = columna_uuid(
+        ForeignKey("users.id", ondelete="SET NULL", onupdate="CASCADE")
+    )
+    # Sin `back_populates`: la relación va en un solo sentido. Se usa `joined`
+    # porque la pantalla de revisión siempre muestra quién resolvió cada una.
+    revisor: Mapped["Usuario | None"] = relationship(lazy="joined")
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_notes: Mapped[str | None] = mapped_column(Text)
+
+    # Quién la presentó
+    created_by_id: Mapped[str | None] = columna_uuid()
+
+    __table_args__ = (
+        Index("excuses_teacher_id_date_idx", "teacher_id", "date"),
+        Index("excuses_status_idx", "status"),
+        Index("excuses_date_idx", "date"),
+        Index("excuses_deleted_at_idx", "deleted_at"),
     )
 
 

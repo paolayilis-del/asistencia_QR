@@ -67,6 +67,8 @@ def _contexto(titulo: str) -> dict:
         },
         "permisos": {
             "marcar": bool(usuario and usuario.tiene("attendance.self", "attendance.create")),
+            "excusas": bool(usuario and usuario.tiene("excuses.self")),
+            "revisar_excusas": bool(usuario and usuario.tiene("excuses.review")),
             "borrar_asistencia": bool(usuario and usuario.rol_codigo == ROL_CONTROL_TOTAL),
             "editar_ajustes": bool(usuario and usuario.tiene("settings.update")),
             "reportes": bool(usuario and usuario.tiene("reports.read")),
@@ -145,9 +147,76 @@ def login():
 @bp.get("/dashboard")
 @con_sesion("dashboard.read")
 def dashboard():
-    from ..modulos.reportes import servicio as reportes
+    """
+    Dashboard del docente y dashboard de la institución.
 
-    return render_template("dashboard.html", panel=reportes.panel(), **_contexto("Dashboard"))
+    Son dos pantallas distintas con la misma dirección. La del docente muestra
+    sus propias cifras; la institucional, el panorama completo. Se decide por
+    el permiso: quien puede consultar la asistencia de todo el colegio recibe
+    el panel general, y el resto recibe el suyo.
+    """
+    usuario = usuario_actual()
+
+    if usuario and usuario.tiene("attendance.read", "teachers.read"):
+        from ..modulos.reportes import servicio as reportes
+
+        return render_template(
+            "dashboard.html", panel=reportes.panel(), **_contexto("Dashboard")
+        )
+
+    from ..modulos.asistencia import servicio as asistencia
+
+    return render_template(
+        "mi-dashboard.html", panel=asistencia.panel_propio(usuario), **_contexto("Mi dashboard")
+    )
+
+
+@bp.get("/mi-asistencia")
+@con_sesion("attendance.self")
+def mi_asistencia():
+    """
+    Asistencia del docente: el detalle de sus marcaciones y la acción de marcar.
+
+    Vive aparte de `/asistencia`, que es el listado administrativo de todo el
+    colegio. Aquí solo hay una fila de datos, la del usuario que entró, pero
+    hace falta pantalla propia para que ese dato no compita con la vista
+    institucional.
+    """
+    from ..modulos.asistencia import servicio as asistencia
+
+    usuario = usuario_actual()
+    return render_template(
+        "mi-asistencia.html",
+        estado=asistencia.estado_propio(usuario),
+        **_contexto("Mi asistencia"),
+    )
+
+
+@bp.get("/excusas")
+@con_sesion("excuses.self")
+def excusas():
+    """
+    Justificaciones del docente: presentar una nueva y seguir las que ya envía.
+
+    La lista y la revisión se cargan por la API desde la propia página, igual
+    que el resto de listados, para que un filtro no obligue a recargar todo el
+    HTML.
+    """
+    return render_template("excusas.html", **_contexto("Mis excusas"))
+
+
+@bp.get("/revision-excusas")
+@con_sesion("excuses.read")
+def revision_excusas():
+    """
+    Revisión de justificaciones de toda la institución.
+
+    Es la contraparte de `/excusas`: el docente presenta y sigue las suyas, y
+    quien tiene `excuses.read` decide sobre todas. La decisión se toma con
+    `excuses.review`, que es un permiso aparte de poder consultarlas: poder ver
+    la bandeja no implica poder resolverla.
+    """
+    return render_template("revision-excusas.html", **_contexto("Revisión de excusas"))
 
 
 # Cada listado se resuelve con la misma plantilla: cambia la definición de

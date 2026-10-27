@@ -57,6 +57,13 @@ def crear_app(config: type[Config] | None = None) -> Flask:
     # ── Módulos ──────────────────────────────────────────────────────
     _registrar_modulos(app)
 
+    # ── Estructura que le falta a la base ya desplegada ─────────────
+    # `database.sql` sigue siendo la fuente para una instalación nueva; esto
+    # solo pone al día una base que ya está en producción.
+    from . import migraciones
+
+    migraciones.aplicar(app)
+
     # ── Fotografías guardadas antes de la versión 3.4 ────────────────
     # Ahora las imágenes viven en la base de datos y se sirven desde el propio
     # módulo de docentes. Esta ruta solo atiende las que quedaran en el disco
@@ -116,6 +123,7 @@ MODULOS_API = (
     "jornadas",
     "horarios",
     "asistencia",
+    "excusas",
     "reportes",
     "auditoria",
     "configuracion",

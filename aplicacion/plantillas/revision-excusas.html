@@ -1,0 +1,498 @@
+{% extends "panel.html" %}
+{% block titulo %}Revisión de excusas · Sistema de Asistencia Docente{% endblock %}
+
+{# Bandeja de revisión de justificaciones.
+
+   A diferencia de `/excusas`, aquí el docente no envía: se resuelve lo que ya
+  /enviaron. Cada decisión pide su motivo y queda registrada con nombre y hora
+   de quien la tomó, porque un rechazo sin explicación deja al docente sin
+   saber qué corregir. Los datos llegan por la API para que aprobar una fila no
+   obligue a recargar el listado entero. #}
+
+{% block contenido %}
+<div class="mx-auto max-w-[1400px] space-y-5 animate-fade-in">
+
+  {# ── Encabezado y cifras ────────────────────────────────────── #}
+  <div class="surface-card flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex min-w-0 items-center gap-4">
+      <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+        <svg viewBox="0 0 24 24" fill="none" class="h-6 w-6 text-primary" aria-hidden="true">
+          <path d="M7 3.5h7.5L19 8v12.5a1 1 0 01-1 1H7a1 1 0 01-1-1v-16a1 1 0 011-1z"
+                stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+          <path d="M14 3.5V8h4.5" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+          <circle cx="12" cy="14" r="3.2" stroke="#10B981" stroke-width="1.6"/>
+          <path d="M14.4 16.4l2.1 2.1" stroke="#10B981" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="min-w-0">
+        <h2 class="truncate text-2xl font-bold tracking-tight text-foreground">Revisión de excusas</h2>
+        <p class="truncate text-sm text-muted-foreground">
+          Justificaciones presentadas por los docentes de la institución.
+        </p>
+      </div>
+    </div>
+
+    <div class="flex shrink-0 items-center gap-2">
+      {% if permisos.revisar_excusas %}
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-warning/20 bg-warning/10 px-3 py-1 text-xs font-medium text-amber-700">
+        <span id="cifra-pendientes">—</span> por revisar
+      </span>
+      {% endif %}
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-3 py-1 text-xs font-medium text-emerald-700">
+        <span id="cifra-aprobadas">—</span> aprobadas
+      </span>
+    </div>
+  </div>
+
+  {# ── Aviso de la más antigua sin resolver ────────────────────── #}
+  <p id="antigua" class="hidden rounded-lg border border-warning/20 bg-warning/10 px-4 py-2.5 text-sm text-amber-800">
+  </p>
+
+  {# ── Filtros ─────────────────────────────────────────────────── #}
+  <div class="surface-card p-4">
+    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div class="xl:col-span-2">
+        <label for="filtro-busqueda" class="mb-1 block text-xs font-medium text-muted-foreground">Buscar docente</label>
+        <input type="search" id="filtro-busqueda" placeholder="Código, nombre o documento"
+               class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground
+                      placeholder:text-muted-foreground focus:border-primary focus:outline-none
+                      focus:ring-2 focus:ring-primary/20">
+      </div>
+      <div>
+        <label for="filtro-estado" class="mb-1 block text-xs font-medium text-muted-foreground">Estado</label>
+        <select id="filtro-estado"
+                class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground
+                       focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <option value="PENDING">Por revisar</option>
+          <option value="">Todos los estados</option>
+          <option value="APPROVED">Aprobadas</option>
+          <option value="REJECTED">Rechazadas</option>
+        </select>
+      </div>
+      <div>
+        <label for="filtro-tipo" class="mb-1 block text-xs font-medium text-muted-foreground">Motivo</label>
+        <select id="filtro-tipo"
+                class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground
+                       focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <option value="">Todos los motivos</option>
+          <option value="INCAPACIDAD">Incapacidad</option>
+          <option value="PERMISO">Permiso</option>
+          <option value="OTRO">Otro</option>
+        </select>
+      </div>
+      <div>
+        <label for="filtro-desde" class="mb-1 block text-xs font-medium text-muted-foreground">Desde</label>
+        <input type="date" id="filtro-desde"
+               class="h-10 w-full rounded-lg border border-input bg-card px-3 text-sm text-foreground
+                      focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+      </div>
+    </div>
+
+    <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+      <p class="text-xs text-muted-foreground">
+        <span id="cifra-filtradas">—</span> justificación(es) coinciden con el filtro.
+      </p>
+      <button type="button" id="limpiar" class="text-sm font-medium text-primary transition hover:underline">
+        Limpiar filtros
+      </button>
+    </div>
+  </div>
+
+  {# ── Bandeja ─────────────────────────────────────────────────── #}
+  <div class="surface-card overflow-hidden">
+    <div class="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+      <h3 class="text-base font-semibold text-foreground">Bandeja de revisión</h3>
+      <span id="tabla-aviso" class="text-xs text-muted-foreground"></span>
+    </div>
+
+    <ul id="lista" class="divide-y divide-border">
+      <li class="px-5 py-10 text-center text-sm text-muted-foreground">Cargando justificaciones…</li>
+    </ul>
+
+    <div id="paginacion" class="flex items-center justify-between gap-3 border-t border-border px-5 py-3"></div>
+  </div>
+</div>
+
+{# ── Ventana de decisión ──────────────────────────────────────────
+   Se declara fuera del flujo principal para que el foco viaje al campo de
+   notas al abrirse, sin que el contenido de la tabla se desplace. #}
+<div id="modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4"
+     role="dialog" aria-modal="true" aria-labelledby="modal-titulo">
+  <div id="modal-velo" class="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"></div>
+
+  <div class="surface-card relative z-10 w-full max-w-lg overflow-hidden shadow-elevated">
+    <div class="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+      <h3 id="modal-titulo" class="text-base font-semibold text-foreground">Resolver justificación</h3>
+      <button type="button" id="modal-cerrar"
+              class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground
+                     transition hover:bg-muted" aria-label="Cerrar">
+        <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4" aria-hidden="true">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="space-y-4 p-5">
+      <div id="modal-resumen" class="rounded-lg bg-muted/60 px-3 py-2.5 text-sm"></div>
+
+      <div>
+        <label for="modal-notas" class="mb-1 block text-sm font-medium text-foreground">
+          Respuesta al docente
+        </label>
+        <textarea id="modal-notas" rows="3" maxlength="1000"
+                  placeholder="Explique la decisión. Es obligatoria si rechaza."
+                  class="w-full rounded-lg border border-input bg-card px-3 py-2 text-sm text-foreground
+                         placeholder:text-muted-foreground focus:border-primary focus:outline-none
+                         focus:ring-2 focus:ring-primary/20"></textarea>
+        <p id="modal-ayuda" class="mt-1 text-xs text-muted-foreground">
+          Opcional al aprobar. Obligatoria al rechazar.
+        </p>
+      </div>
+
+      <div id="modal-aviso" class="hidden rounded-lg px-3 py-2 text-sm"></div>
+    </div>
+
+    <div class="flex flex-wrap justify-end gap-2 border-t border-border px-5 py-4">
+      <button type="button" id="modal-cancelar"
+              class="h-10 rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground
+                     transition hover:bg-muted">
+        Cancelar
+      </button>
+      <button type="button" id="modal-rechazar"
+              class="h-10 rounded-lg border border-destructive/30 bg-destructive/10 px-4 text-sm
+                     font-semibold text-red-700 transition hover:bg-destructive/20">
+        Rechazar
+      </button>
+      <button type="button" id="modal-aprobar"
+              class="h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground
+                     shadow-glow transition hover:bg-primary-hover">
+        Aprobar
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block guiones_pagina %}
+<script>
+  const LISTA = document.getElementById('lista');
+  const AVISO = document.getElementById('tabla-aviso');
+  const MODAL = document.getElementById('modal');
+  const MODAL_NOTAS = document.getElementById('modal-notas');
+  const MODAL_AVISO = document.getElementById('modal-aviso');
+  const MODAL_RESUMEN = document.getElementById('modal-resumen');
+  const MODAL_AYUDA = document.getElementById('modal-ayuda');
+  const APROBAR = document.getElementById('modal-aprobar');
+  const RECHAZAR = document.getElementById('modal-rechazar');
+  const ANTIGUA = document.getElementById('antigua');
+
+  const puedeRevisar = {{ 'true' if permisos.revisar_excusas else 'false' }};
+
+  const filtros = {
+    search: document.getElementById('filtro-busqueda'),
+    status: document.getElementById('filtro-estado'),
+    type: document.getElementById('filtro-tipo'),
+    dateFrom: document.getElementById('filtro-desde'),
+  };
+
+  let pagina = 1;
+  // Excusa que se está resolviendo. Se guarda aparte para que el manejador de
+  // los botones sepa a cuál aplicar la decisión sin volver a buscarla.
+  let enCurso = null;
+
+  const texto = (valor) => String(valor ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+
+  const claseEstado = (estado) => {
+    if (estado === 'APPROVED') return 'border-success/20 bg-success/10 text-emerald-700';
+    if (estado === 'REJECTED') return 'border-destructive/20 bg-destructive/10 text-red-700';
+    return 'border-warning/20 bg-warning/10 text-amber-700';
+  };
+
+  const fechaLegible = (clave) => {
+    // Se parte el `AAAA-MM-DD` a mano: al pasarlo por `Date` el navegador lo
+    // toma como UTC y en Colombia mostraría el día anterior.
+    const [a, m, d] = String(clave).split('-');
+    return `${d}/${m}/${a}`;
+  };
+
+  const peso = (bytes) => {
+    if (!bytes) return '';
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  function mostrarAviso(mensaje, tipo) {
+    if (!mensaje) {
+      MODAL_AVISO.classList.add('hidden');
+      return;
+    }
+    const estilos = {
+      error: 'bg-destructive/10 text-red-700',
+      exito: 'bg-success/10 text-emerald-700',
+    };
+    MODAL_AVISO.className = `rounded-lg px-3 py-2 text-sm ${estilos[tipo] || estilos.error}`;
+    MODAL_AVISO.textContent = mensaje;
+  }
+
+  // ── Listado ───────────────────────────────────────────────────
+  async function cargar() {
+    const parametros = new URLSearchParams({ page: pagina, limit: 10 });
+    for (const [clave, campo] of Object.entries(filtros)) {
+      if (campo.value) parametros.set(clave, campo.value);
+    }
+
+    try {
+      const datos = await Api.get(`/excuses?${parametros}`);
+      pintar(datos);
+    } catch (error) {
+      LISTA.innerHTML = `<li class="px-5 py-10 text-center text-sm text-red-700">
+        No se pudo cargar la bandeja. ${texto(error.mensaje)}</li>`;
+    }
+  }
+
+  function pintar(datos) {
+    const filas = datos.items || [];
+    const meta = datos.meta || {};
+
+    AVISO.textContent = filas.length ? `Mostrando ${filas.length} de ${meta.total}` : '';
+
+    if (!filas.length) {
+      LISTA.innerHTML = `<li class="px-5 py-10 text-center text-sm text-muted-foreground">
+        No hay justificaciones con estos filtros.</li>`;
+      document.getElementById('paginacion').innerHTML = '';
+      return;
+    }
+
+    LISTA.innerHTML = filas.map((e) => {
+      const docente = e.teacher
+        ? `${texto(e.teacher.firstName)} ${texto(e.teacher.lastName)}`
+        : 'Docente';
+
+      const adjunto = e.fileUrl
+        ? `<a href="${texto(e.fileUrl)}" target="_blank" rel="noopener"
+              class="inline-flex items-center gap-1.5 text-xs font-medium text-primary transition hover:underline">
+             <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5" aria-hidden="true">
+               <path d="M12 4v11M8 11l4 4 4-4M5 19h14" stroke="currentColor" stroke-width="1.8"
+                     stroke-linecap="round" stroke-linejoin="round"/>
+             </svg>
+             ${texto(e.fileName || 'Ver documento')}${peso(e.fileSize) ? ` · ${peso(e.fileSize)}` : ''}
+           </a>`
+        : '<span class="text-xs text-muted-foreground">Sin documento</span>';
+
+      // La decisión ya tomada se muestra con su autor y su motivo. Enseñar el
+      // histórico es lo que hace auditable la bandeja.
+      const resuelto = e.status !== 'PENDING'
+        ? `<div class="mt-3 rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+             <span class="font-semibold text-foreground">
+               ${e.reviewedBy ? `${texto(e.reviewedBy.firstName)} ${texto(e.reviewedBy.lastName)}` : 'Sin autor registrado'}
+             </span>
+             ${e.reviewedAt ? ` · ${new Date(e.reviewedAt).toLocaleString('es-CO')}` : ''}
+             ${e.reviewNotes ? `<br><span class="font-semibold text-foreground">Motivo:</span> ${texto(e.reviewNotes)}` : ''}
+           </div>`
+        : '';
+
+      const acciones = (e.status === 'PENDING' && puedeRevisar)
+        ? `<div class="flex shrink-0 flex-wrap gap-2">
+             <button type="button" data-resolver="${texto(e.id)}"
+                     class="h-9 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground
+                            shadow-glow transition hover:bg-primary-hover">
+               Revisar
+             </button>
+           </div>`
+        : '';
+
+      return `
+        <li class="px-5 py-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm font-semibold text-foreground">${docente}</span>
+                ${e.teacher && e.teacher.code
+                  ? `<span class="inline-flex items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">${texto(e.teacher.code)}</span>`
+                  : ''}
+                <span class="inline-flex items-center rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground">
+                  ${texto(e.typeLabel)}
+                </span>
+                <span class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${claseEstado(e.status)}">
+                  ${texto(e.statusLabel)}
+                </span>
+              </div>
+              <p class="mt-1.5 text-xs text-muted-foreground">
+                Justifica el ${fechaLegible(e.date)} · enviada ${new Date(e.createdAt).toLocaleString('es-CO')}
+              </p>
+              <p class="mt-1.5 text-sm text-foreground">${texto(e.reason)}</p>
+              <div class="mt-2">${adjunto}</div>
+              ${resuelto}
+            </div>
+            ${acciones}
+          </div>
+        </li>`;
+    }).join('');
+
+    pintarPaginacion(meta);
+    document.getElementById('cifra-filtradas').textContent = meta.total ?? 0;
+    LISTA.querySelectorAll('[data-resolver]').forEach((boton) => {
+      boton.addEventListener('click', () => abrir(boton.dataset.resolver));
+    });
+  }
+
+  function pintarPaginacion(meta) {
+    const contenedor = document.getElementById('paginacion');
+    if (!meta.totalPages || meta.totalPages <= 1) {
+      contenedor.innerHTML = '';
+      return;
+    }
+
+    contenedor.innerHTML = `
+      <p class="text-xs text-muted-foreground">Página ${meta.page} de ${meta.totalPages}</p>
+      <div class="flex gap-2">
+        <button type="button" data-pagina="${meta.page - 1}"
+                class="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground
+                       transition hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                ${meta.hasPreviousPage ? '' : 'disabled'}>Anterior</button>
+        <button type="button" data-pagina="${meta.page + 1}"
+                class="rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground
+                       transition hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+                ${meta.hasNextPage ? '' : 'disabled'}>Siguiente</button>
+      </div>`;
+
+    contenedor.querySelectorAll('[data-pagina]').forEach((boton) => {
+      boton.addEventListener('click', () => { pagina = Number(boton.dataset.pagina); cargar(); });
+    });
+  }
+
+  // ── Resumen ───────────────────────────────────────────────────
+  async function cargarResumen() {
+    try {
+      const datos = await Api.get('/excuses/summary');
+      document.getElementById('cifra-pendientes').textContent = datos.pending ?? 0;
+      document.getElementById('cifra-aprobadas').textContent = datos.approved ?? 0;
+
+      // La más antigua sin resolver es la que lleva más tiempo esperando: se
+      // avisa para que no se quede en el fondo de la pila.
+      if (datos.pending && datos.oldestPendingAt) {
+        const dias = Math.floor((Date.now() - new Date(datos.oldestPendingAt)) / 86400000);
+        ANTIGUA.classList.remove('hidden');
+        ANTIGUA.textContent = dias >= 1
+          ? `La justificación más antigua sin resolver lleva ${dias} día(s) esperando.`
+          : 'Hay justificaciones presentadas hoy sin resolver.';
+      } else {
+        ANTIGUA.classList.add('hidden');
+      }
+    } catch (_) {
+      // El resumen es informativo: si falla, la bandeja sigue funcionando.
+    }
+  }
+
+  // ── Ventana de decisión ───────────────────────────────────────
+  async function abrir(identificador) {
+    mostrarAviso('', 'error');
+    try {
+      enCurso = await Api.get(`/excuses/${identificador}`);
+    } catch (error) {
+      mostrarAviso(`No se pudo abrir la justificación. ${error.mensaje}`, 'error');
+      return;
+    }
+
+    const docente = enCurso.teacher
+      ? `${enCurso.teacher.firstName} ${enCurso.teacher.lastName}`
+      : 'Docente';
+
+    MODAL_RESUMEN.innerHTML = `
+      <p class="font-semibold text-foreground">${texto(docente)}</p>
+      <p class="mt-1 text-sm text-muted-foreground">
+        ${texto(enCurso.typeLabel)} · justifica el ${fechaLegible(enCurso.date)}
+      </p>
+      <p class="mt-2 text-sm text-foreground">${texto(enCurso.reason)}</p>
+      ${enCurso.fileUrl
+        ? `<a href="${texto(enCurso.fileUrl)}" target="_blank" rel="noopener"
+              class="mt-2 inline-block text-xs font-medium text-primary transition hover:underline">
+             ${texto(enCurso.fileName || 'Ver documento')}${peso(enCurso.fileSize) ? ` · ${peso(enCurso.fileSize)}` : ''}
+           </a>`
+        : ''}`;
+
+    MODAL_NOTAS.value = '';
+    MODAL_AYUDA.textContent = 'Opcional al aprobar. Obligatoria al rechazar.';
+    MODAL.classList.remove('hidden');
+    MODAL.classList.add('flex');
+    MODAL_NOTAS.focus();
+  }
+
+  function cerrar() {
+    MODAL.classList.add('hidden');
+    MODAL.classList.remove('flex');
+    enCurso = null;
+  }
+
+  async function resolver(estado) {
+    if (!enCurso) return;
+
+    const notas = MODAL_NOTAS.value.trim();
+
+    // El servidor también lo exige; aquí solo se evita el viaje de ida y vuelta.
+    if (estado === 'REJECTED' && notas.length < 5) {
+      mostrarAviso('Explique por qué rechaza la justificación.', 'error');
+      MODAL_NOTAS.focus();
+      return;
+    }
+
+    APROBAR.disabled = true;
+    RECHAZAR.disabled = true;
+    const respaldo = [APROBAR, RECHAZAR].map((b) => b.textContent);
+
+    try {
+      await Api.post(`/excuses/${enCurso.id}/review`, {
+        status: estado,
+        notes: notas || null,
+      });
+      cerrar();
+      await Promise.all([cargar(), cargarResumen()]);
+    } catch (error) {
+      mostrarAviso(error.mensaje || 'No se pudo registrar la decisión.', 'error');
+    } finally {
+      APROBAR.disabled = false;
+      RECHAZAR.disabled = false;
+      [APROBAR, RECHAZAR].forEach((b, i) => { b.textContent = respaldo[i]; });
+    }
+  }
+
+  APROBAR.addEventListener('click', () => resolver('APPROVED'));
+  RECHAZAR.addEventListener('click', () => resolver('REJECTED'));
+  document.getElementById('modal-cerrar').addEventListener('click', cerrar);
+  document.getElementById('modal-cancelar').addEventListener('click', cerrar);
+  document.getElementById('modal-velo').addEventListener('click', cerrar);
+
+  document.addEventListener('keydown', (evento) => {
+    if (evento.key === 'Escape' && !MODAL.classList.contains('hidden')) cerrar();
+  });
+
+  // ── Filtros ───────────────────────────────────────────────────
+  // La búsqueda espera a que se deje de escribir: una consulta por tecla
+  // llenaría el log de la API sin que el usuario haya pedido nada nuevo. Los
+  // selectores y las fechas usan `change`, que solo suena al elegir de verdad:
+  // en un `select` también salta `input`, y se cargaría dos veces.
+  let temporizador = null;
+  filtros.search.addEventListener('input', () => {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(() => { pagina = 1; cargar(); }, 350);
+  });
+
+  [filtros.status, filtros.type, filtros.dateFrom].forEach((campo) => {
+    campo.addEventListener('change', () => { pagina = 1; cargar(); });
+  });
+
+  document.getElementById('limpiar').addEventListener('click', () => {
+    Object.values(filtros).forEach((campo) => { campo.value = ''; });
+    // El filtro vuelve a "por revisar": es la cola de trabajo, no un filtro
+    // neutro como el de estado vacío, que no se llega a ver desde esta pantalla.
+    filtros.status.value = 'PENDING';
+    pagina = 1;
+    cargar();
+  });
+
+  cargar();
+  cargarResumen();
+</script>
+{% endblock %}

@@ -38,6 +38,14 @@ CREATE TYPE "attendance_status" AS ENUM ('ON_TIME', 'LATE', 'EARLY_DEPARTURE');
 CREATE TYPE "audit_action" AS ENUM ('CREATE', 'UPDATE', 'DELETE', 'ACTIVATE', 'DEACTIVATE', 'LOGIN', 'LOGOUT', 'ATTENDANCE');
 
 -- CreateEnum
+-- Motivo de la justificacion presentada por el docente.
+CREATE TYPE "excuse_type" AS ENUM ('INCAPACIDAD', 'PERMISO', 'OTRO');
+
+-- CreateEnum
+-- Estado de la revision de la justificacion.
+CREATE TYPE "excuse_status" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+
+-- CreateEnum
 CREATE TYPE "setting_type" AS ENUM ('STRING', 'NUMBER', 'BOOLEAN', 'JSON');
 
 -- CreateEnum
@@ -299,6 +307,33 @@ CREATE TABLE "attendances" (
 );
 
 -- CreateTable
+-- Justificaciones que presenta un docente para explicar una ausencia, una
+-- tardanza o una salida anticipada. El archivo viaja dentro de la base de
+-- datos, igual que la fotografia del docente.
+CREATE TABLE "excuses" (
+    "id" UUID NOT NULL,
+    "teacher_id" UUID NOT NULL,
+    "attendance_id" UUID,
+    "type" "excuse_type" NOT NULL,
+    "status" "excuse_status" NOT NULL DEFAULT 'PENDING',
+    "date" DATE NOT NULL,
+    "reason" TEXT NOT NULL,
+    "file_name" VARCHAR(200),
+    "file_mime" VARCHAR(80),
+    "file_size" BIGINT,
+    "file_data" BYTEA,
+    "reviewed_by_id" UUID,
+    "reviewed_at" TIMESTAMPTZ(3),
+    "review_notes" TEXT,
+    "created_by_id" UUID,
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL,
+    "deleted_at" TIMESTAMPTZ(3),
+
+    CONSTRAINT "excuses_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "audit_logs" (
     "id" UUID NOT NULL,
     "user_id" UUID,
@@ -468,6 +503,18 @@ CREATE INDEX "attendances_schedule_id_idx" ON "attendances"("schedule_id");
 CREATE INDEX "attendances_deleted_at_idx" ON "attendances"("deleted_at");
 
 -- CreateIndex
+CREATE INDEX "excuses_teacher_id_date_idx" ON "excuses"("teacher_id", "date");
+
+-- CreateIndex
+CREATE INDEX "excuses_status_idx" ON "excuses"("status");
+
+-- CreateIndex
+CREATE INDEX "excuses_date_idx" ON "excuses"("date");
+
+-- CreateIndex
+CREATE INDEX "excuses_deleted_at_idx" ON "excuses"("deleted_at");
+
+-- CreateIndex
 CREATE INDEX "audit_logs_user_id_idx" ON "audit_logs"("user_id");
 
 -- CreateIndex
@@ -536,6 +583,15 @@ ALTER TABLE "attendances" ADD CONSTRAINT "attendances_teacher_id_fkey" FOREIGN K
 ALTER TABLE "attendances" ADD CONSTRAINT "attendances_schedule_id_fkey" FOREIGN KEY ("schedule_id") REFERENCES "schedules"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "excuses" ADD CONSTRAINT "excuses_teacher_id_fkey" FOREIGN KEY ("teacher_id") REFERENCES "teachers"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "excuses" ADD CONSTRAINT "excuses_attendance_id_fkey" FOREIGN KEY ("attendance_id") REFERENCES "attendances"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "excuses" ADD CONSTRAINT "excuses_reviewed_by_id_fkey" FOREIGN KEY ("reviewed_by_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 
@@ -554,6 +610,7 @@ ALTER TABLE "courses" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();
 ALTER TABLE "shifts" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();
 ALTER TABLE "schedules" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();
 ALTER TABLE "attendances" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();
+ALTER TABLE "excuses" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();
 ALTER TABLE "audit_logs" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();
 ALTER TABLE "settings" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();
 
@@ -824,7 +881,10 @@ INSERT INTO "permissions" ("id", "code", "name", "module", "is_system", "status"
   (gen_random_uuid(), 'audit.export', 'Exportar auditoría', 'Auditoría', TRUE, 'ACTIVE', NOW(), NOW()),
   (gen_random_uuid(), 'settings.read', 'Consultar configuración', 'Configuración', TRUE, 'ACTIVE', NOW(), NOW()),
   (gen_random_uuid(), 'settings.update', 'Editar configuración', 'Configuración', TRUE, 'ACTIVE', NOW(), NOW()),
-  (gen_random_uuid(), 'dashboard.read', 'Consultar dashboard', 'Dashboard', TRUE, 'ACTIVE', NOW(), NOW());
+  (gen_random_uuid(), 'dashboard.read', 'Consultar dashboard', 'Dashboard', TRUE, 'ACTIVE', NOW(), NOW()),
+  (gen_random_uuid(), 'excuses.self', 'Gestionar propias excusas', 'Excusas', TRUE, 'ACTIVE', NOW(), NOW()),
+  (gen_random_uuid(), 'excuses.read', 'Consultar excusas', 'Excusas', TRUE, 'ACTIVE', NOW(), NOW()),
+  (gen_random_uuid(), 'excuses.review', 'Revisar excusas', 'Excusas', TRUE, 'ACTIVE', NOW(), NOW());
 
 -- ── Roles ──
 INSERT INTO "roles" ("id", "code", "name", "description", "is_system", "status", "created_at", "updated_at") VALUES
@@ -834,33 +894,33 @@ INSERT INTO "roles" ("id", "code", "name", "description", "is_system", "status",
   (gen_random_uuid(), 'DOCENTE', 'Docente', 'Registra su propia entrada y salida y consulta su historial.', TRUE, 'ACTIVE', NOW(), NOW());
 
 -- ── Asignación de permisos a cada rol ──
--- SUPER_ADMIN: 74 permisos
+-- SUPER_ADMIN: 77 permisos
 INSERT INTO "role_permissions" ("role_id", "permission_id", "created_at")
 SELECT r."id", p."id", NOW()
 FROM "roles" r CROSS JOIN "permissions" p
 WHERE r."code" = 'SUPER_ADMIN'
-  AND p."code" IN ('users.read', 'users.create', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.export', 'users.reset-password', 'roles.read', 'roles.create', 'roles.update', 'roles.delete', 'roles.activate', 'roles.deactivate', 'roles.export', 'permissions.read', 'permissions.create', 'permissions.update', 'permissions.delete', 'permissions.activate', 'permissions.deactivate', 'permissions.export', 'teachers.read', 'teachers.create', 'teachers.update', 'teachers.delete', 'teachers.activate', 'teachers.deactivate', 'teachers.export', 'grades.read', 'grades.update', 'grades.activate', 'grades.deactivate', 'grades.export', 'courses.read', 'courses.create', 'courses.update', 'courses.delete', 'courses.activate', 'courses.deactivate', 'courses.export', 'subjects.read', 'subjects.create', 'subjects.update', 'subjects.delete', 'subjects.activate', 'subjects.deactivate', 'subjects.export', 'shifts.read', 'shifts.create', 'shifts.update', 'shifts.delete', 'shifts.activate', 'shifts.deactivate', 'shifts.export', 'schedules.read', 'schedules.create', 'schedules.update', 'schedules.delete', 'schedules.activate', 'schedules.deactivate', 'schedules.export', 'attendance.read', 'attendance.create', 'attendance.export', 'attendance.self', 'attendance.delete', 'reports.read', 'reports.export', 'audit.read', 'audit.export', 'settings.read', 'settings.update', 'dashboard.read');
+  AND p."code" IN ('users.read', 'users.create', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.export', 'users.reset-password', 'roles.read', 'roles.create', 'roles.update', 'roles.delete', 'roles.activate', 'roles.deactivate', 'roles.export', 'permissions.read', 'permissions.create', 'permissions.update', 'permissions.delete', 'permissions.activate', 'permissions.deactivate', 'permissions.export', 'teachers.read', 'teachers.create', 'teachers.update', 'teachers.delete', 'teachers.activate', 'teachers.deactivate', 'teachers.export', 'grades.read', 'grades.update', 'grades.activate', 'grades.deactivate', 'grades.export', 'courses.read', 'courses.create', 'courses.update', 'courses.delete', 'courses.activate', 'courses.deactivate', 'courses.export', 'subjects.read', 'subjects.create', 'subjects.update', 'subjects.delete', 'subjects.activate', 'subjects.deactivate', 'subjects.export', 'shifts.read', 'shifts.create', 'shifts.update', 'shifts.delete', 'shifts.activate', 'shifts.deactivate', 'shifts.export', 'schedules.read', 'schedules.create', 'schedules.update', 'schedules.delete', 'schedules.activate', 'schedules.deactivate', 'schedules.export', 'attendance.read', 'attendance.create', 'attendance.export', 'attendance.self', 'attendance.delete', 'reports.read', 'reports.export', 'audit.read', 'audit.export', 'settings.read', 'settings.update', 'dashboard.read', 'excuses.self', 'excuses.read', 'excuses.review');
 
--- ADMINISTRADOR: 53 permisos
+-- ADMINISTRADOR: 56 permisos
 INSERT INTO "role_permissions" ("role_id", "permission_id", "created_at")
 SELECT r."id", p."id", NOW()
 FROM "roles" r CROSS JOIN "permissions" p
 WHERE r."code" = 'ADMINISTRADOR'
-  AND p."code" IN ('users.read', 'users.create', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.export', 'users.reset-password', 'roles.read', 'roles.create', 'roles.update', 'roles.activate', 'roles.deactivate', 'roles.export', 'permissions.read', 'teachers.read', 'teachers.create', 'teachers.update', 'teachers.delete', 'teachers.activate', 'teachers.deactivate', 'teachers.export', 'grades.read', 'grades.update', 'grades.activate', 'grades.deactivate', 'grades.export', 'courses.read', 'courses.create', 'courses.update', 'courses.delete', 'courses.activate', 'courses.deactivate', 'courses.export', 'subjects.read', 'subjects.create', 'subjects.update', 'subjects.delete', 'subjects.activate', 'subjects.deactivate', 'subjects.export', 'shifts.read', 'shifts.create', 'shifts.update', 'shifts.delete', 'shifts.activate', 'shifts.deactivate', 'shifts.export', 'schedules.read', 'schedules.create', 'schedules.update', 'schedules.delete', 'schedules.activate', 'schedules.deactivate', 'schedules.export', 'attendance.read', 'attendance.create', 'attendance.export', 'reports.read', 'reports.export', 'audit.read', 'audit.export', 'settings.read', 'settings.update', 'dashboard.read');
+  AND p."code" IN ('users.read', 'users.create', 'users.update', 'users.delete', 'users.activate', 'users.deactivate', 'users.export', 'users.reset-password', 'roles.read', 'roles.create', 'roles.update', 'roles.activate', 'roles.deactivate', 'roles.export', 'permissions.read', 'teachers.read', 'teachers.create', 'teachers.update', 'teachers.delete', 'teachers.activate', 'teachers.deactivate', 'teachers.export', 'grades.read', 'grades.update', 'grades.activate', 'grades.deactivate', 'grades.export', 'courses.read', 'courses.create', 'courses.update', 'courses.delete', 'courses.activate', 'courses.deactivate', 'courses.export', 'subjects.read', 'subjects.create', 'subjects.update', 'subjects.delete', 'subjects.activate', 'subjects.deactivate', 'subjects.export', 'shifts.read', 'shifts.create', 'shifts.update', 'shifts.delete', 'shifts.activate', 'shifts.deactivate', 'shifts.export', 'schedules.read', 'schedules.create', 'schedules.update', 'schedules.delete', 'schedules.activate', 'schedules.deactivate', 'schedules.export', 'attendance.read', 'attendance.create', 'attendance.export', 'reports.read', 'reports.export', 'audit.read', 'audit.export', 'settings.read', 'settings.update', 'dashboard.read', 'excuses.self', 'excuses.read', 'excuses.review');
 
--- COORDINADOR: 19 permisos
+-- COORDINADOR: 21 permisos
 INSERT INTO "role_permissions" ("role_id", "permission_id", "created_at")
 SELECT r."id", p."id", NOW()
 FROM "roles" r CROSS JOIN "permissions" p
 WHERE r."code" = 'COORDINADOR'
-  AND p."code" IN ('dashboard.read', 'teachers.read', 'teachers.update', 'teachers.export', 'grades.read', 'courses.read', 'courses.create', 'courses.update', 'courses.export', 'subjects.read', 'subjects.create', 'subjects.update', 'subjects.export', 'shifts.read', 'schedules.read', 'schedules.create', 'schedules.update', 'schedules.export', 'attendance.read', 'attendance.create', 'attendance.export', 'reports.read', 'reports.export', 'audit.read');
+  AND p."code" IN ('dashboard.read', 'teachers.read', 'teachers.update', 'teachers.export', 'grades.read', 'courses.read', 'courses.create', 'courses.update', 'courses.export', 'subjects.read', 'subjects.create', 'subjects.update', 'subjects.export', 'shifts.read', 'schedules.read', 'schedules.create', 'schedules.update', 'schedules.export', 'attendance.read', 'attendance.create', 'attendance.export', 'reports.read', 'reports.export', 'audit.read', 'excuses.read', 'excusas.review');
 
--- DOCENTE: 2 permisos
+-- DOCENTE: 3 permisos
 INSERT INTO "role_permissions" ("role_id", "permission_id", "created_at")
 SELECT r."id", p."id", NOW()
 FROM "roles" r CROSS JOIN "permissions" p
 WHERE r."code" = 'DOCENTE'
-  AND p."code" IN ('attendance.self', 'dashboard.read');
+  AND p."code" IN ('attendance.self', 'dashboard.read', 'excuses.self');
 
 -- ── Usuario inicial (SUPER_ADMIN) ──
 -- Contraseña: Admin123*  — cámbiela tras el primer ingreso.
@@ -939,7 +999,7 @@ COMMIT;
 -- ═══════════════════════════════════════════════════════════════════════
 --  Comprobación rápida tras la ejecución:
 --
---    SELECT COUNT(*) FROM permissions;   -- esperado: 62
+--    SELECT COUNT(*) FROM permissions;   -- esperado: 65
 --    SELECT COUNT(*) FROM roles;         -- esperado: 4
 --    SELECT COUNT(*) FROM users;         -- esperado: 1
 --    SELECT COUNT(*) FROM shifts;        -- esperado: 3
