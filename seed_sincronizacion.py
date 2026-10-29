@@ -54,8 +54,11 @@ def _insertar(cur, tabla: str, fila: dict) -> None:
         else:
             marcadores.append("%s")
             valores.append(fila[c])
+    # Las columnas se unen aparte: una barra invertida dentro de una f-string
+    # solo es válida desde Python 3.12 y el proyecto declara 3.10 como mínimo.
+    columnas = '", "'.join(cols)
     sql = (
-        f'INSERT INTO "{tabla}" ("{"\", \"".join(cols)}") '
+        f'INSERT INTO "{tabla}" ("{columnas}") '
         f"VALUES ({', '.join(marcadores)})"
     )
     cur.execute(sql, valores)

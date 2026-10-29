@@ -13,7 +13,7 @@ def _ejecutar_archivo(cur, ruta: Path, descripcion: str) -> bool:
     if not ruta.exists():
         print(f"{descripcion} no encontrado, saltando")
         return False
-    cur.execute(ruta.read_text())
+    cur.execute(ruta.read_text(encoding="utf-8"))
     print(f"{descripcion} aplicado correctamente")
     return True
 
