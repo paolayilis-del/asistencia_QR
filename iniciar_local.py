@@ -389,7 +389,6 @@ def main() -> None:
     print("  Deténgala con Ctrl+C.")
     print()
 
-    sys.argv = ["servidor.py"]
     servidor = RAIZ / "servidor.py"
 
     entorno_hijo = os.environ.copy()

@@ -27,30 +27,24 @@ genera reportes exportables a Excel y mantiene auditoría completa de todas las 
 
 ---
 
-## Despliegue en Render
+## Inicio rápido con Docker
 
-El sistema está publicado en **https://asistencia-qr-0cjy.onrender.com** con la
-definición de [`render.yaml`](render.yaml): un servicio web de Python y una base
-PostgreSQL 16 en la misma región (`oregon`).
+La forma más fácil de ejecutar el proyecto. Solo necesita Docker instalado:
 
 ```bash
-git clone https://github.com/paolayilis-del/asistencia_QR.git
+git clone https://github.com/sadamoma2010-byte/asistencia_QR.git
 cd asistencia_QR
+docker compose up -d
 ```
 
-1. En Render, **New → Blueprint** y apunte a este repositorio: toma `render.yaml`.
-2. El *build* instala las dependencias y ejecuta `init_db.py` (crea el esquema y
-   sincroniza el seed; es idempotente).
-3. El arranque es `python servidor.py --produccion`; el chequeo de salud es
-   `GET /api/v1/health`.
-4. `DATABASE_URL` la inyecta Render desde la base del blueprint. Dentro de Render
-   use siempre la **cadena interna** (sin `.oregon-postgres.render.com`): la
-   externa no es estable desde la propia plataforma.
-5. `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` y `SESSION_SECRET` se generan solos.
-   No se escriben en el repositorio.
+Esto levanta PostgreSQL y la aplicación automáticamente. La base de datos se crea
+con datos de ejemplo (roles, permisos, grados, cursos, asignaturas y un usuario admin).
 
-> El plan gratuito de PostgreSQL caduca a los 30 días de crearse. Antes de esa
-> fecha hay que pasar a un plan pago o exportar y restaurar el respaldo.
+| Servicio | Dirección |
+|---|---|
+| Aplicación | http://localhost:4000 |
+| API | http://localhost:4000/api/v1 |
+| PostgreSQL | localhost:5432 |
 
 ### Credenciales iniciales
 
@@ -60,7 +54,21 @@ cd asistencia_QR
 | Password | `Admin123*` |
 | Rol | `Rector(a)` |
 
-> Cambie la contraseña en el primer ingreso.
+### Comandos útiles
+
+```bash
+# Ver logs
+docker compose logs -f app
+
+# Detener
+docker compose down
+
+# Detener y borrar datos
+docker compose down -v
+
+# Reconstruir tras cambios
+docker compose up -d --build
+```
 
 ---
 
@@ -101,13 +109,34 @@ controlador, `servicio.py` por servicio y `esquemas.py` por DTO.
 
 | | |
 |---|---|
-| Python | 3.12 o superior |
+| Python | 3.11 o superior |
 | PostgreSQL | 16 o superior, en marcha |
 | Node.js | solo para recompilar el CSS (opcional) |
 
 ## Instalación
 
-### 1. Dependencias
+### Atajo: un solo comando
+
+```bash
+python iniciar_local.py
+```
+
+Ese script hace todo lo de los tres pasos siguientes y arranca la aplicación:
+crea el entorno virtual e instala las dependencias, busca PostgreSQL, crea la
+base `asistencia_qr`, aplica `database.sql`, escribe `.env` con secretos nuevos
+y abre el navegador. Es idempotente: las siguientes veces solo comprueba y
+arranca.
+
+| Opción | Para qué |
+|---|---|
+| `--puerto 4000` | puerto de escucha (si está ocupado usa el siguiente libre) |
+| `--base-datos URL` | conexión concreta, p. ej. `postgresql://postgres@localhost:5432/asistencia_qr` |
+| `--reinstalar` | vuelve a instalar las dependencias |
+| `--no-navegador` | no abre el navegador |
+
+Si PostgreSQL pide contraseña, la solicita una vez y solo la guarda en `.env`.
+
+### 1. Dependencias (manual)
 
 ```bash
 python -m venv .venv
@@ -148,10 +177,10 @@ Lo más sencillo es doble clic en **`INICIAR-APLICACION.bat`**. Comprueba que Po
 esté encendido y que el entorno de Python esté instalado, levanta la aplicación en su
 propia ventana, espera a que responda y abre el navegador.
 
-Lo mismo desde la terminal:
+Lo mismo desde la terminal, sin depender de los archivos `.bat`:
 
 ```bash
-npm run dev
+python iniciar_local.py
 ```
 
 Para apagarlo:
@@ -430,7 +459,7 @@ Todas viven en `aplicacion/modulos/asistencia/servicio.py` y se comprueban con
 - Límite de intentos de acceso (5 por minuto) y bloqueo temporal de la cuenta.
 - Cookie de sesión `HttpOnly` y `SameSite=Lax`, para que un sitio ajeno no pueda
   provocar peticiones autenticadas desde el navegador.
-- Sanitización de entradas y cabeceras de seguridad en la capa HTTP.
+- Sanitización de entradas y `helmet` en la capa HTTP.
 - Soft delete obligatorio en todas las entidades.
 
 ### Credenciales
