@@ -7,3 +7,8 @@ uploads/
 .env
 *.db
 *.sqlite3
+.env.*
+!.env.example
+*.log
+*.zip
+.claude/

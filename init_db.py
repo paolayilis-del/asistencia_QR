@@ -49,6 +49,17 @@ def init_database():
         print("DATABASE_URL no configurada, saltando init")
         return
 
+    # psycopg2 no entiende `?schema=public` (lo añade Prisma): se descarta,
+    # igual que hace `aplicacion/config.py` al preparar SQLAlchemy.
+    if "?" in db_url:
+        base, _, consulta = db_url.partition("?")
+        resto = "&".join(
+            parametro
+            for parametro in consulta.split("&")
+            if not parametro.startswith("schema=")
+        )
+        db_url = base + ("?" + resto if resto else "")
+
     sql_file = Path(__file__).parent / "database.sql"
     if not sql_file.exists():
         print("database.sql no encontrado, saltando")
@@ -59,7 +70,7 @@ def init_database():
         conn.autocommit = True
         cur = conn.cursor()
 
-        tables = cur.execute(
+        cur.execute(
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'"
         )
         count = cur.fetchone()[0]

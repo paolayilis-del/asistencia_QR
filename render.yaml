@@ -3,13 +3,14 @@ services:
     name: asistencia-qr
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && python init_db.py || true
+    region: oregon
+    buildCommand: pip install -r requirements.txt && python init_db.py
     startCommand: python servidor.py --produccion
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
-      - key: API_PORT
-        value: 10000
       - key: API_PREFIX
         value: api/v1
       - key: JWT_ACCESS_SECRET
@@ -24,13 +25,14 @@ services:
         value: America/Bogota
       - key: SEED_ADMIN_EMAIL
         value: admin@datly.local
+      - key: CORS_ORIGINS
+        value: https://asistencia-qr-0cjy.onrender.com
       - key: DATABASE_URL
         fromDatabase:
-          name: asistencia-qr-db
+          name: asistencia-db
           property: connectionString
 
 databases:
-  - name: asistencia-qr-db
+  - name: asistencia-db
     plan: free
-    databaseName: asistencia_qr
-    user: postgres
+    region: oregon

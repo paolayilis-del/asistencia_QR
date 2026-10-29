@@ -90,7 +90,10 @@ class Config:
     ENTORNO = _texto("NODE_ENV", "development")
     ZONA_HORARIA = _texto("APP_TIMEZONE", "America/Bogota")
     PREFIJO_API = "/" + _texto("API_PREFIX", "api/v1").strip("/")
-    PUERTO = _entero("API_PORT", 4000)
+    # Render (y otros PaaS) publican el puerto en `PORT`; se prefiere ese
+    # valor para no tener que mantener `API_PORT` sincronizado con la
+    # plataforma.
+    PUERTO = _entero("PORT", 0) or _entero("API_PORT", 4000)
 
     # ── Base de datos ────────────────────────────────────────────────
     SQLALCHEMY_DATABASE_URI = _normalizar_url(_texto("DATABASE_URL", ""))
@@ -160,6 +163,7 @@ class Config:
             for nombre, valor in (
                 ("JWT_ACCESS_SECRET", cls.JWT_ACCESO_SECRETO),
                 ("JWT_REFRESH_SECRET", cls.JWT_REFRESCO_SECRETO),
+                ("SESSION_SECRET", cls.SECRET_KEY),
             ):
                 if "change-me" in valor or len(valor) < 32:
                     problemas.append(f"{nombre} debe cambiarse antes de publicar en producción.")
