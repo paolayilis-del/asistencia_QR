@@ -468,6 +468,27 @@ const Formulario = (() => {
       }
     });
 
+    // Al vincular una cuenta de usuario, los datos personales del docente se
+    // toman de ella: no hace falta volver a escribirlos.
+    const cuentaDocente = formulario.querySelector('[data-catalogo="users"]');
+    if (cuentaDocente) {
+      const derivados = ['firstName', 'lastName', 'document', 'email', 'phone'];
+      const tomarDelUsuario = async () => {
+        if (!cuentaDocente.value) return;
+        try {
+          const usuario = await Api.get(`/users/${cuentaDocente.value}`);
+          derivados.forEach((nombre) => {
+            const input = formulario.querySelector(`[name="${nombre}"]`);
+            if (input && usuario[nombre] != null) input.value = usuario[nombre];
+          });
+        } catch (sinUsuario) {
+          // Si no se puede leer la cuenta, los campos quedan editables a mano
+        }
+      };
+      cuentaDocente.addEventListener('change', tomarDelUsuario);
+      if (cuentaDocente.dataset.elegido) tomarDelUsuario();
+    }
+
     for (const caja of formulario.querySelectorAll('[data-multiple]')) {
       const campo = caja.dataset.multiple;
       const elegidos = (registro?.[campo] || registro?.[campo.replace('Ids', 's')] || []).map(

@@ -66,8 +66,8 @@ def _contexto(titulo: str) -> dict:
             "iniciales": navegacion.iniciales(usuario.nombre_completo if usuario else ""),
         },
         "permisos": {
-            "marcar": bool(usuario and usuario.tiene("attendance.self", "attendance.create")),
-            "excusas": bool(usuario and usuario.tiene("excuses.self")),
+            "marcar": bool(usuario and usuario.docente_id and usuario.tiene("attendance.self", "attendance.create")),
+            "excusas": bool(usuario and usuario.docente_id and usuario.tiene("excuses.self")),
             "revisar_excusas": bool(usuario and usuario.tiene("excuses.review")),
             "borrar_asistencia": bool(usuario and usuario.rol_codigo == ROL_CONTROL_TOTAL),
             "editar_ajustes": bool(usuario and usuario.tiene("settings.update")),
@@ -174,17 +174,12 @@ def dashboard():
 @bp.get("/mi-asistencia")
 @con_sesion("attendance.self")
 def mi_asistencia():
-    """
-    Asistencia del docente: el detalle de sus marcaciones y la acción de marcar.
-
-    Vive aparte de `/asistencia`, que es el listado administrativo de todo el
-    colegio. Aquí solo hay una fila de datos, la del usuario que entró, pero
-    hace falta pantalla propia para que ese dato no compita con la vista
-    institucional.
-    """
+    """Historial de asistencia propio (solo para docentes)."""
+    usuario = usuario_actual()
+    if not usuario or not usuario.docente_id:
+        return render_template("sin-permiso.html", **_contexto("Sin acceso")), 403
     from ..modulos.asistencia import servicio as asistencia
 
-    usuario = usuario_actual()
     return render_template(
         "mi-asistencia.html",
         estado=asistencia.estado_propio(usuario),
@@ -195,13 +190,10 @@ def mi_asistencia():
 @bp.get("/excusas")
 @con_sesion("excuses.self")
 def excusas():
-    """
-    Justificaciones del docente: presentar una nueva y seguir las que ya envía.
-
-    La lista y la revisión se cargan por la API desde la propia página, igual
-    que el resto de listados, para que un filtro no obligue a recargar todo el
-    HTML.
-    """
+    """Justificaciones propias (solo para docentes)."""
+    usuario = usuario_actual()
+    if not usuario or not usuario.docente_id:
+        return render_template("sin-permiso.html", **_contexto("Sin acceso")), 403
     return render_template("excusas.html", **_contexto("Mis excusas"))
 
 
@@ -327,21 +319,25 @@ def configuracion_pagina():
 
 
 @bp.get("/marcar")
-@con_sesion()
+@con_sesion("attendance.self")
 def marcar():
+    usuario = usuario_actual()
+    if not usuario or not usuario.docente_id:
+        return render_template("sin-permiso.html", **_contexto("Sin acceso")), 403
     from ..modulos.asistencia import servicio as asistencia
 
-    usuario = usuario_actual()
-    estado = asistencia.estado_propio(usuario) if usuario.docente_id else None
+    estado = asistencia.estado_propio(usuario)
     return render_template("marcar.html", estado=estado, **_contexto("Marcar asistencia"))
 
 
 @bp.get("/escanear")
-@con_sesion()
+@con_sesion("attendance.self")
 def escanear():
-    """Página de escaneo QR con geolocalización para docentes."""
+    """Escaneo QR con geolocalización (solo para docentes)."""
+    usuario = usuario_actual()
+    if not usuario or not usuario.docente_id:
+        return render_template("sin-permiso.html", **_contexto("Sin acceso")), 403
     from ..modulos.asistencia import servicio as asistencia
 
-    usuario = usuario_actual()
-    estado = asistencia.estado_propio(usuario) if usuario.docente_id else None
+    estado = asistencia.estado_propio(usuario)
     return render_template("escanear.html", estado=estado, **_contexto("Escanear QR"))

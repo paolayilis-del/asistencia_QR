@@ -98,49 +98,49 @@ ICONOS = {
 }
 
 
-# (ruta, etiqueta, icono, permiso que la habilita)
+# (ruta, etiqueta, icono, permiso que la habilita, solo_docente)
+# solo_docente=True: visible únicamente para usuarios vinculados a un docente
+# (oculta estas funciones de autoservicio a super administradores y administradores)
 ESTRUCTURA = (
     (
         "Operación",
         (
-            ("/dashboard", "Dashboard", "panel", "dashboard.read"),
-            ("/asistencia", "Asistencia", "asistencia", "attendance.read"),
-            ("/mi-asistencia", "Mi asistencia", "historial", "attendance.self"),
-            ("/escanear", "Escanear QR", "qr", "attendance.self"),
-            ("/reportes", "Reportes", "reportes", "reports.read"),
-            ("/qr", "Código QR", "qr", "settings.read"),
+            ("/dashboard", "Dashboard", "panel", "dashboard.read", False),
+            ("/asistencia", "Asistencia", "asistencia", "attendance.read", False),
+            ("/mi-asistencia", "Mi asistencia", "historial", "attendance.self", True),
+            ("/escanear", "Escanear QR", "qr", "attendance.self", True),
+            ("/reportes", "Reportes", "reportes", "reports.read", False),
+            ("/qr", "Código QR", "qr", "settings.read", False),
         ),
     ),
     (
         "Académico",
         (
-            ("/docentes", "Docentes", "docentes", "teachers.read"),
-            ("/asignaturas", "Asignaturas", "asignaturas", "subjects.read"),
-            ("/grados", "Grados", "grados", "grades.read"),
-            ("/cursos", "Cursos", "cursos", "courses.read"),
-            ("/jornadas", "Jornadas", "jornadas", "shifts.read"),
-            ("/horarios", "Horarios", "horarios", "schedules.read"),
+            ("/docentes", "Docentes", "docentes", "teachers.read", False),
+            ("/asignaturas", "Asignaturas", "asignaturas", "subjects.read", False),
+            ("/grados", "Grados", "grados", "grades.read", False),
+            ("/cursos", "Cursos", "cursos", "courses.read", False),
+            ("/jornadas", "Jornadas", "jornadas", "shifts.read", False),
+            ("/horarios", "Horarios", "horarios", "schedules.read", False),
         ),
     ),
     (
         "Administración",
         (
-            # La primera entrada es la del docente: presentar una justificación
-            # es una gestión propia, no una tarea administrativa. Aparece aquí
-            # porque la pidió así, pero la resuelve `excuses.self`, no el rol.
-            ("/excusas", "Mis excusas", "excusas", "excuses.self"),
-            ("/revision-excusas", "Revisión de excusas", "revisar", "excuses.review"),
-            ("/usuarios", "Usuarios", "usuarios", "users.read"),
-            ("/roles", "Roles", "roles", "roles.read"),
-            ("/configuracion", "Configuración", "ajustes", "settings.read"),
+            ("/excusas", "Mis excusas", "excusas", "excuses.self", True),
+            ("/revision-excusas", "Revisión de excusas", "revisar", "excuses.review", False),
+            ("/usuarios", "Usuarios", "usuarios", "users.read", False),
+            ("/roles", "Roles", "roles", "roles.read", False),
+            ("/configuracion", "Configuración", "ajustes", "settings.read", False),
         ),
     ),
 )
 
 
 def construir(usuario: UsuarioAutenticado, ruta_actual: str) -> list[dict]:
-    """Menú filtrado por los permisos del usuario."""
+    """Menú filtrado por permisos y perfil (autoservicio solo para docentes)."""
     menu = []
+    es_docente = bool(getattr(usuario, "docente_id", None))
     for titulo, opciones in ESTRUCTURA:
         visibles = [
             {
@@ -149,8 +149,8 @@ def construir(usuario: UsuarioAutenticado, ruta_actual: str) -> list[dict]:
                 "icono": ICONOS[icono],
                 "activa": ruta_actual == ruta or ruta_actual.startswith(ruta + "/"),
             }
-            for ruta, etiqueta, icono, permiso in opciones
-            if usuario.tiene(permiso)
+            for ruta, etiqueta, icono, permiso, solo_docente in opciones
+            if usuario.tiene(permiso) and (not solo_docente or es_docente)
         ]
         if visibles:
             menu.append({"titulo": titulo, "opciones": visibles})

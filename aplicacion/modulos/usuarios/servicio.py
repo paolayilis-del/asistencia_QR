@@ -184,6 +184,29 @@ class ServicioUsuarios(ServicioCRUD):
             cls._rol_valido(datos["roleId"])
 
     @classmethod
+    def gancho_despues_de_actualizar(cls, fila: Usuario, datos: dict, _previo: dict) -> None:
+        # Si se desactiva, las sesiones abiertas dejan de valer
+        if datos.get("status") == EstadoRegistro.INACTIVO:
+            ahora = datetime.now(timezone.utc)
+            for sesion in bd.session.execute(
+                select(SesionRefresco).where(
+                    SesionRefresco.user_id == fila.id, SesionRefresco.revoked_at.is_(None)
+                )
+            ).scalars():
+                sesion.revoked_at = ahora
+        # Sincronizar datos personales con el docente vinculado
+        docente = bd.session.execute(
+            select(Docente).where(Docente.user_id == fila.id, Docente.deleted_at.is_(None))
+        ).scalar_one_or_none()
+        if docente:
+            docente.first_name = fila.first_name
+            docente.last_name = fila.last_name
+            docente.document = fila.document
+            docente.email = fila.email
+            if fila.phone:
+                docente.phone = fila.phone
+
+    @classmethod
     def gancho_impide_eliminar(cls, fila: Usuario) -> str | None:
         vinculado = bd.session.execute(
             select(Docente.code).where(Docente.user_id == fila.id, Docente.deleted_at.is_(None))

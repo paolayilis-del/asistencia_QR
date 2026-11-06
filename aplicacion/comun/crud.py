@@ -160,9 +160,12 @@ class ServicioCRUD:
         cls, identificador: str, datos: dict, actor: UsuarioAutenticado, ctx: ContextoPeticion
     ) -> dict:
         fila = cls.buscar(identificador)
+        previo = {c.key: getattr(fila, c.key) for c in fila.__table__.columns}
         cls.gancho_antes_de_actualizar(fila, datos)
 
         cls.aplicar_cambios(fila, datos)
+
+        cls.gancho_despues_de_actualizar(fila, datos, previo)
 
         auditoria.anotar(
             AccionAuditoria.ACTUALIZAR,
@@ -272,6 +275,10 @@ class ServicioCRUD:
     @classmethod
     def gancho_antes_de_actualizar(cls, fila: Any, datos: dict) -> None:
         """Validaciones previas a la modificación."""
+
+    @classmethod
+    def gancho_despues_de_actualizar(cls, fila: Any, datos: dict, _previo: dict) -> None:
+        """Trabajo adicional tras la modificación."""
 
     @classmethod
     def gancho_impide_inactivar(cls, fila: Any) -> str | None:

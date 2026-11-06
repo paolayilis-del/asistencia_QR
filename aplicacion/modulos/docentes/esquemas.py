@@ -12,15 +12,20 @@ class CrearDocente(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     code: str = Field(min_length=2, max_length=40)
-    firstName: str = Field(min_length=2, max_length=120)
-    lastName: str = Field(min_length=2, max_length=120)
-    document: str = Field(min_length=4, max_length=40)
-    email: Correo
+    # Datos personales: si se vincula una cuenta (userId), se toman del usuario
+    firstName: str | None = Field(default=None, min_length=2, max_length=120)
+    lastName: str | None = Field(default=None, min_length=2, max_length=120)
+    document: str | None = Field(default=None, min_length=4, max_length=40)
+    email: Correo | None = None
     phone: str | None = Field(default=None, max_length=30)
     userId: str | None = None
     status: EstadoRegistro | None = None
     subjectIds: list[str] | None = None
     courseIds: list[str] | None = None
+
+    @property
+    def requiere_datos_personales(self) -> bool:
+        return not self.userId
 
 
 class ActualizarDocente(BaseModel):

@@ -264,13 +264,19 @@ class ServicioDocentes(ServicioCRUD):
 
     @classmethod
     def construir(cls, datos: dict) -> Docente:
+        if not datos.get("userId"):
+            faltantes = [k for k in ("firstName", "lastName", "document", "email") if not datos.get(k)]
+            if faltantes:
+                raise SolicitudInvalida(
+                    "Debe vincular una cuenta de usuario o completar nombres, apellidos, documento y correo"
+                )
         return Docente(
             id=nuevo_id(),
             code=datos["code"],
-            first_name=datos["firstName"],
-            last_name=datos["lastName"],
-            document=datos["document"],
-            email=datos["email"],
+            first_name=datos.get("firstName") or "",
+            last_name=datos.get("lastName") or "",
+            document=datos.get("document") or "",
+            email=datos.get("email") or "",
             phone=datos.get("phone") or None,
             user_id=datos.get("userId") or None,
             status=datos.get("status") or EstadoRegistro.ACTIVO,
@@ -344,16 +350,29 @@ class ServicioDocentes(ServicioCRUD):
 
     @classmethod
     def gancho_antes_de_crear(cls, datos: dict) -> None:
+        if datos.get("userId"):
+            usuario = cls._usuario_disponible(datos["userId"])
+            cls._aplicar_datos_usuario(datos, usuario)
+        faltantes = [
+            k for k in ("firstName", "lastName", "document", "email") if not datos.get(k)
+        ]
+        if faltantes:
+            raise SolicitudInvalida(
+                "Debe vincular una cuenta de usuario o completar nombres, apellidos, documento y correo"
+            )
         cls.exige_unico(Docente.code, datos["code"], "Ya existe un docente con ese código")
         cls.exige_unico(
             Docente.document, datos["document"], "Ya existe un docente con ese documento"
         )
         cls.exige_unico(Docente.email, datos["email"], "Ya existe un docente con ese correo")
-        if datos.get("userId"):
-            cls._usuario_disponible(datos["userId"])
 
     @classmethod
     def gancho_antes_de_actualizar(cls, fila: Docente, datos: dict) -> None:
+        if datos.get("userId"):
+            usuario = cls._usuario_disponible(datos["userId"], excluir=fila.id)
+            cls._aplicar_datos_usuario(datos, usuario)
+        elif "userId" in datos and datos.get("userId") in (None, ""):
+            datos["userId"] = None
         if datos.get("code") and datos["code"] != fila.code:
             cls.exige_unico(
                 Docente.code, datos["code"], "Ya existe un docente con ese código", excluir=fila.id
@@ -372,8 +391,6 @@ class ServicioDocentes(ServicioCRUD):
                 "Ya existe un docente con ese correo",
                 excluir=fila.id,
             )
-        if datos.get("userId"):
-            cls._usuario_disponible(datos["userId"], excluir=fila.id)
 
     @classmethod
     def gancho_impide_inactivar(cls, fila: Docente) -> str | None:
