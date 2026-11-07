@@ -134,6 +134,17 @@ PERMISOS_POR_ROL = {
     "SUPER_ADMIN": ("excuses.self", "excuses.read", "excuses.review"),
 }
 
+# Los grados los fija la Ley 115, pero la institución puede necesitar crear
+# otros (por ejemplo, ciclos de educación de adultos). Este permiso habilita
+# esa alta sin alterar los catorce grados del sistema.
+PERMISOS_GRADOS = (
+    ("grades.create", "Crear grados", "Grados"),
+)
+PERMISOS_GRADOS_POR_ROL = {
+    "ADMINISTRADOR": ("grades.create",),
+    "SUPER_ADMIN": ("grades.create",),
+}
+
 
 def aplicar_excusas() -> None:
     """Crea la estructura de excusas si el servidor aún no la tiene."""
@@ -150,14 +161,14 @@ def aplicar_excusas() -> None:
     _asignar_permisos()
 
 
-def _asignar_permisos() -> None:
+def _crear_y_asignar(permisos: tuple, por_rol: dict) -> None:
     """
-    Inserta los permisos de excusas y los reparte entre los roles.
+    Inserta permisos y los reparte entre los roles.
 
     `ON CONFLICT` hace que repetir el arranque no duplique nada. Los roles que
     no existan se saltan solos: la consulta no encuentra filas que repartir.
     """
-    for codigo, etiqueta, modulo in PERMISOS_EXCUSAS:
+    for codigo, etiqueta, modulo in permisos:
         bd.session.execute(
             text(
                 """
@@ -175,11 +186,11 @@ def _asignar_permisos() -> None:
 
     bd.session.commit()
 
-    for rol, permisos in PERMISOS_POR_ROL.items():
-        if not permisos:
+    for rol, claves in por_rol.items():
+        if not claves:
             continue
-        lista = ", ".join(f":p{i}" for i in range(len(permisos)))
-        parametros = {f"p{i}": valor for i, valor in enumerate(permisos)}
+        lista = ", ".join(f":p{i}" for i in range(len(claves)))
+        parametros = {f"p{i}": valor for i, valor in enumerate(claves)}
         bd.session.execute(
             text(
                 f"""
@@ -198,6 +209,16 @@ def _asignar_permisos() -> None:
     bd.session.commit()
 
 
+def _asignar_permisos() -> None:
+    """Inserta y reparte los permisos de excusas entre los roles."""
+    _crear_y_asignar(PERMISOS_EXCUSAS, PERMISOS_POR_ROL)
+
+
+def aplicar_grados() -> None:
+    """Habilita la creación de grados adicionales a los administradores."""
+    _crear_y_asignar(PERMISOS_GRADOS, PERMISOS_GRADOS_POR_ROL)
+
+
 def aplicar(app) -> None:
     """
     Punto de entrada desde la fábrica de la aplicación.
@@ -211,6 +232,7 @@ def aplicar(app) -> None:
     with app.app_context():
         try:
             aplicar_excusas()
+            aplicar_grados()
             registro.info("Migraciones: estructura al día")
         except SQLAlchemyError as error:
             bd.session.rollback()
