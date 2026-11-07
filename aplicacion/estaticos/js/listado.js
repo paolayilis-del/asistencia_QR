@@ -294,7 +294,13 @@
   }
 
   function botonesFila(fila) {
-    if (!vista.puede.editar && !vista.puede.activar && !vista.puede.reiniciar_clave) return '';
+    if (
+      !vista.puede.editar &&
+      !vista.puede.activar &&
+      !vista.puede.reiniciar_clave &&
+      !vista.puede.eliminar
+    )
+      return '';
 
     const activo = fila.status === 'ACTIVE';
     const neutro = 'text-muted-foreground hover:bg-muted hover:text-foreground';
@@ -313,6 +319,18 @@
           activo ? 'Inactivar' : 'Activar',
           fila.id,
           activo ? neutro : 'text-emerald-600 hover:bg-success/10',
+        ),
+      );
+    }
+    // Los grados de la Ley 115 no se eliminan: se inactivan. El botón se
+    // oculta para no ofrecer una acción que el servidor rechazaría.
+    if (vista.puede.eliminar && fila.isSystem !== true) {
+      partes.push(
+        iconoAccion(
+          'eliminar',
+          'Eliminar',
+          fila.id,
+          'text-destructive hover:bg-destructive/10',
         ),
       );
     }

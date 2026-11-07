@@ -29,13 +29,16 @@ class ActualizarGrado(BaseModel):
     """
     Modificación de un grado.
 
-    Solo se puede cambiar el nombre visible, la descripción y si la
-    institución lo ofrece. El código, el nivel y el lugar en la escalera los
-    fija la ley.
+    En los grados del sistema (Ley 115) solo cambian el nombre visible, la
+    descripción y si se ofrece. En los grados propios de la institución
+    también se pueden corregir el código, el nivel y el orden.
     """
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    code: str | None = Field(default=None, min_length=1, max_length=10)
     name: str | None = Field(default=None, min_length=2, max_length=60)
+    level: NivelEducativo | None = None
+    position: int | None = Field(default=None, ge=1, le=30)
     description: str | None = Field(default=None, max_length=300)
     status: EstadoRegistro | None = None

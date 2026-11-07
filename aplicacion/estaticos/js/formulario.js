@@ -422,7 +422,14 @@ const Formulario = (() => {
           ${definicion.foto ? bloqueFoto(registro) : ''}
           <div class="grid gap-4 sm:grid-cols-6">
             ${definicion.campos
-              .filter((d) => !(d.solo_crear && esEdicion) && !(d.solo_editar && !esEdicion))
+              .filter(
+                (d) =>
+                  !(d.solo_crear && esEdicion) &&
+                  !(d.solo_editar && !esEdicion) &&
+                  // Los grados propios de la institución se pueden corregir;
+                  // los de la Ley 115 solo cambian de nombre, descripción y estado.
+                  !(d.solo_personalizado && esEdicion && registro?.isSystem),
+              )
               .map((d) => bloque(d, registro))
               .join('')}
           </div>

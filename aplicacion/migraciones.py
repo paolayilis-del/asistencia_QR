@@ -139,10 +139,11 @@ PERMISOS_POR_ROL = {
 # esa alta sin alterar los catorce grados del sistema.
 PERMISOS_GRADOS = (
     ("grades.create", "Crear grados", "Grados"),
+    ("grades.delete", "Eliminar grados", "Grados"),
 )
 PERMISOS_GRADOS_POR_ROL = {
-    "ADMINISTRADOR": ("grades.create",),
-    "SUPER_ADMIN": ("grades.create",),
+    "ADMINISTRADOR": ("grades.create", "grades.delete"),
+    "SUPER_ADMIN": ("grades.create", "grades.delete"),
 }
 
 

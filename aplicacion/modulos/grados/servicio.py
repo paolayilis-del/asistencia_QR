@@ -145,8 +145,26 @@ class ServicioGrados(ServicioCRUD):
         )
 
     @classmethod
+    def gancho_antes_de_actualizar(cls, fila: Grado, datos: dict) -> None:
+        if fila.is_system:
+            # Los grados de la ley no cambian de código, nivel ni orden
+            return
+        codigo = datos.get("code")
+        if codigo and codigo != fila.code:
+            cls.exige_unico(
+                Grado.code, codigo, "Ya existe un grado con ese código", excluir=fila.id
+            )
+
+    @classmethod
     def aplicar_cambios(cls, fila: Grado, datos: dict) -> None:
-        # El código, el nivel y la posición los fija la ley: no se tocan.
+        # El código, el nivel y la posición de los grados de la ley no se tocan.
+        if not fila.is_system:
+            if datos.get("code") is not None:
+                fila.code = datos["code"]
+            if datos.get("level") is not None:
+                fila.level = datos["level"]
+            if datos.get("position") is not None:
+                fila.position = datos["position"]
         if datos.get("name") is not None:
             fila.name = datos["name"]
         if "description" in datos:
